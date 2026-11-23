@@ -1,0 +1,38 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0.16,6.2)'
+}
+
+version = '1.0.0'
+group = 'net.novasmp.menu'
+
+base {
+    archivesName = 'novamenu'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.10'
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+            'Specification-Title'   : 'novamenu',
+            'Specification-Version' : '1',
+            'Implementation-Title'  : 'Nova Menu',
+            'Implementation-Version': project.version,
+        ])
+    }
+    // Forge 1.20.1 usa nombres SRG al ejecutar: el .jar se reofusca al final.
+    finalizedBy 'reobfJar'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

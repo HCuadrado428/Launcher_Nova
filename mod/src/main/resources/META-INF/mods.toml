@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="novamenu"
+version="1.0.0"
+displayName="Nova Menu"
+authors="NOVA 2"
+description='''Menú principal de NOVA 2: solo «Entrar al Nova 2», Opciones y Salir.'''
+# Mod solo de cliente: el servidor no lo necesita ni lo comprueba.
+displayTest="IGNORE_ALL_VERSION"
+
+[[dependencies.novamenu]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.novamenu]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="CLIENT"
