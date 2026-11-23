@@ -558,10 +558,27 @@ ipcMain.handle('install-update', () => {
 // VENTANA
 // ============================================================================
 
+// Tamaño para el que está dibujada la interfaz. Con la ventana más grande
+// (maximizada, pantalla completa) se amplía todo en proporción, en vez de
+// dejar el contenido pequeño en una esquina.
+const BASE_WIDTH = 1040;
+const BASE_HEIGHT = 680;
+const MAX_ZOOM = 2.5;
+
+function zoomFor(width, height) {
+  return Math.max(1, Math.min(width / BASE_WIDTH, height / BASE_HEIGHT, MAX_ZOOM));
+}
+
+function fitZoom() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const [width, height] = mainWindow.getContentSize();
+  mainWindow.webContents.setZoomFactor(zoomFor(width, height));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1040,
-    height: 680,
+    width: BASE_WIDTH,
+    height: BASE_HEIGHT,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#17150f',
@@ -576,6 +593,10 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.on('did-finish-load', fitZoom);
+  for (const event of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) {
+    mainWindow.on(event, fitZoom);
+  }
 
   // La interfaz es local: ningún enlace debe navegar dentro de la ventana.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
