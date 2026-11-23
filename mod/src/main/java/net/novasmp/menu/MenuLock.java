@@ -17,6 +17,7 @@ import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -38,15 +39,22 @@ public final class MenuLock {
     private MenuLock() {
     }
 
-    @SubscribeEvent
+    // Prioridad mínima: se ejecuta después de los demás mods, para ocultar
+    // también los botones que ellos añadan al menú (editores, listas...).
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onTitleScreenInit(ScreenEvent.Init.Post event) {
         if (MENU_LIBRE || !(event.getScreen() instanceof TitleScreen)) {
             return;
         }
         Screen screen = event.getScreen();
+        // Los botones no se quitan: se ocultan y se sacan de la pantalla. Forge
+        // dibuja su aviso de actualizaciones (la esmeralda) pegado al botón
+        // «Mods», así que al mandarlo fuera el aviso se va con él.
         for (GuiEventListener listener : new ArrayList<>(event.getListenersList())) {
-            if (listener instanceof AbstractWidget) {
-                event.removeListener(listener);
+            if (listener instanceof AbstractWidget widget) {
+                widget.visible = false;
+                widget.active = false;
+                widget.setPosition(-10000, -10000);
             }
         }
 
