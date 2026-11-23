@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const { Client, Authenticator } = require('minecraft-launcher-core');
 const { autoUpdater } = require('electron-updater');
 const { Auth } = require('msmc');
 
@@ -13,6 +12,7 @@ const api = require('./main/api');
 const { syncMods, loadMeta, META_FILE } = require('./main/sync');
 const { ensureForge } = require('./main/forge');
 const { ensureJava } = require('./main/java');
+const { launchGame } = require('./main/launch');
 
 const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 // El token de Minecraft dura 24 h; pasado este tiempo se renueva antes de jugar.
@@ -228,19 +228,6 @@ ipcMain.handle('server-status', async () => {
 // JUGAR
 // ============================================================================
 
-const launcher = new Client();
-launcher.on('debug', (line) => console.log(`[MCLC] ${line}`));
-launcher.on('data', (line) => send('game-log', String(line)));
-launcher.on('progress', (e) => {
-  if (e && e.total) {
-    send('play-progress', { label: 'Comprobando archivos del juego', percent: Math.round((e.task / e.total) * 100) });
-  }
-});
-launcher.on('close', (code) => {
-  gameProcess = null;
-  send('game-closed', { code });
-});
-
 function formatMb(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
@@ -290,22 +277,27 @@ async function play(modpackId) {
 
   progress('Iniciando sesión en Minecraft');
   const account = await refreshMicrosoft(loadConfig().account);
-  const authorization = account.type === 'microsoft' ? account.mclcAuth : Authenticator.getAuth(account.username);
-
   progress('Arrancando Minecraft');
-  const options = {
-    authorization,
-    root: GAME_ROOT,
-    javaPath: java.javaPath,
-    version: { number: manifest.mcVersion, type: 'release', custom: versionId },
-    memory: { max: `${cfg.memoryGb}G`, min: '2G' },
-    // Cada modpack tiene su propia carpeta de juego (mods, mundos, opciones),
-    // pero comparten versiones, librerías y assets.
-    overrides: { gameDirectory: dir, cwd: dir, detached: false },
-    ...(cfg.joinServer ? { quickPlay: { type: 'multiplayer', identifier: SERVER_ADDRESS } } : {}),
-  };
-  gameProcess = await launcher.launch(options);
-  if (!gameProcess) throw new Error('Minecraft no ha llegado a arrancar. Mira la consola para ver el motivo.');
+  gameProcess = await launchGame(
+    {
+      account,
+      gameRoot: GAME_ROOT,
+      // Cada modpack tiene su propia carpeta de juego (mods, mundos, opciones),
+      // pero comparten versiones, librerías y assets.
+      instanceDir: dir,
+      versionId,
+      javaPath: java.javaPath,
+      memoryGb: cfg.memoryGb,
+      serverAddress: cfg.joinServer ? SERVER_ADDRESS : null,
+    },
+    {
+      onLog: (line) => send('game-log', line),
+      onClose: (code) => {
+        gameProcess = null;
+        send('game-closed', { code });
+      },
+    },
+  );
   send('game-started', { id: modpackId });
 }
 

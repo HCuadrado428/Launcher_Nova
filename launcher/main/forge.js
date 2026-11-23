@@ -48,7 +48,7 @@ function runTask(task, label, onProgress) {
 }
 
 // Devuelve el id de versión instalado (p.ej. "1.20.1-forge-47.4.10"), que es
-// lo que se le pasa a minecraft-launcher-core como version.custom.
+// lo que se le pasa a @xmcl/core para lanzar el juego.
 async function ensureForge({ root, mcVersion, forgeVersion, javaPath, onProgress }) {
   const wanted = forgeVersion || (await resolveRecommendedForge(mcVersion));
   const key = `${mcVersion}-forge-${wanted}`;
