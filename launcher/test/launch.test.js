@@ -76,6 +76,7 @@ test('la línea de comandos lleva los argumentos de la JVM de Forge', async () =
         javaPath: '/java/bin/java',
         memoryGb: 6,
         serverAddress: 'xray.dathost.net:17487',
+        joinOnStart: true,
       }),
     );
     const main = cmd.indexOf('cpw.mods.bootstraplauncher.BootstrapLauncher');
@@ -95,6 +96,9 @@ test('la línea de comandos lleva los argumentos de la JVM de Forge', async () =
     assert.ok(jvm[jvm.indexOf('-cp') + 1].endsWith(path.join('versions', '1.20.1', '1.20.1.jar')));
     assert.ok(jvm.includes('-Xmx6144M'));
     assert.ok(!jvm.includes('-Xmx2G'));
+    assert.ok(jvm.includes('-XX:+UseG1GC'));
+    assert.ok(jvm.includes('-Dnova.server=xray.dathost.net:17487'));
+    assert.ok(!jvm.includes('-Dnova.menuLibre=true'), 'el modpack normal lleva el menú restringido');
     assert.ok(!cmd.some((arg) => arg.includes('${')), `sin huecos por rellenar: ${cmd.filter((a) => a.includes('${'))}`);
 
     const value = (flag) => game[game.indexOf(flag) + 1];
@@ -113,7 +117,7 @@ test('la línea de comandos lleva los argumentos de la JVM de Forge', async () =
   }
 });
 
-test('cuenta offline: UUID de servidor offline y sin entrar directo si está desactivado', async () => {
+test('cuenta offline: UUID de servidor offline, menú libre y sin entrar directo', async () => {
   const root = fakeGameRoot();
   try {
     const cmd = await generateArguments(
@@ -124,14 +128,18 @@ test('cuenta offline: UUID de servidor offline y sin entrar directo si está des
         versionId: '1.20.1-forge-47.4.10',
         javaPath: '/java/bin/java',
         memoryGb: 4,
-        serverAddress: null,
+        serverAddress: 'xray.dathost.net:17487',
+        freeMenu: true,
       }),
     );
     const value = (flag) => cmd[cmd.indexOf(flag) + 1];
     assert.equal(value('--username'), 'Lyra_Nova');
     assert.equal(value('--uuid'), offlineUuid('Lyra_Nova'));
     assert.equal(value('--userType'), 'legacy');
-    assert.ok(!cmd.includes('--quickPlayMultiplayer'));
+    assert.ok(!cmd.includes('--quickPlayMultiplayer'), 'sin joinOnStart se abre en el menú');
+    // Lo que pasa el launcher para el modpack admin.
+    assert.ok(cmd.indexOf('-Dnova.menuLibre=true') < cmd.indexOf('cpw.mods.bootstraplauncher.BootstrapLauncher'));
+    assert.ok(cmd.indexOf('-Dnova.menuLibre=true') > 0);
     assert.ok(!cmd.some((arg) => arg.includes('${')));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

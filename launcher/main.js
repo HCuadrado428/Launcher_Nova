@@ -38,7 +38,7 @@ function settings() {
     memoryGb: Math.min(maxGb, Math.max(2, Number(cfg.memoryGb) || Math.min(6, maxGb))),
     maxMemoryGb: maxGb,
     javaPath: cfg.javaPath || '',
-    joinServer: cfg.joinServer !== false,
+    joinServer: cfg.joinServer === true,
     backendUrl: backendUrl(),
     backendConfigured: !backendUrl().includes('CAMBIA-ESTO'),
   };
@@ -288,9 +288,11 @@ async function play(modpackId) {
       versionId,
       javaPath: java.javaPath,
       memoryGb: cfg.memoryGb,
-      // El modpack admin abre siempre en el menú principal: ahí está el mod
-      // para cambiar de cuenta, y entrar directo al servidor se lo saltaría.
-      serverAddress: cfg.joinServer && modpackId !== 'admin' ? SERVER_ADDRESS : null,
+      serverAddress: SERVER_ADDRESS,
+      // El modpack admin abre siempre en el menú normal de Minecraft: ahí está
+      // el mod para cambiar de cuenta. El normal abre en el menú de NOVA 2.
+      joinOnStart: cfg.joinServer && modpackId !== 'admin',
+      freeMenu: modpackId === 'admin',
     },
     {
       onLog: (line) => send('game-log', line),

@@ -4,6 +4,7 @@ El launcher del SMP **NOVA 2**: el jugador inicia sesión, el launcher se baja J
 
 ```
 launcher/   App de escritorio (Electron). Lo que se instalan los jugadores.
+mod/        Mod de Forge con el menú principal de NOVA 2. Lo compila GitHub Actions.
 server/     Backend + panel web. Se despliega en Railway.
 ```
 
@@ -56,7 +57,8 @@ También se puede compilar a mano en Windows con `npm run dist` (el instalador q
 - **Versión del juego:** Minecraft 1.20.1 con Forge 47.4.10. Se cambia en el panel, en «Versión de Minecraft y Forge» de cada modpack; tiene que coincidir con la del servidor.
 - **Java:** el launcher descarga el Java 17 oficial de Mojang la primera vez. En Ajustes se puede elegir otro.
 - **Dónde se guarda todo en el PC del jugador:** `%APPDATA%\.novalauncher` (`game/` compartido, `instances/normal` e `instances/admin` con sus mods, mundos y opciones).
-- **Entrar directo al servidor:** activado por defecto (Ajustes) en el modpack normal. El modpack admin abre siempre en el menú principal. La IP está en `launcher/main/constants.js`.
+- **Menú del juego:** el mod `novamenu` (carpeta `mod/`) deja el menú principal con «Entrar al Nova 2», Opciones y Salir. Hay que subir su `.jar` al modpack desde el panel. En el modpack admin el launcher lo desactiva solo, así que puede estar en los dos. La IP del servidor está en `launcher/main/constants.js`.
+- **Entrar directo al servidor:** desactivado por defecto; se activa en Ajustes y solo afecta al modpack normal.
 - **Límites del panel:** 300 MB por `.jar`.
 
 ## Desarrollo

@@ -1,7 +1,8 @@
 name: Compilar mod
 
-# Compila el mod del menú (carpeta mod/) y deja el .jar como artefacto de la
-# ejecución. No se publica como Release para no mezclarlo con los del launcher.
+# Compila el mod del menú (carpeta mod/) y cuelga el .jar en el Release de la
+# versión actual del launcher, junto al instalador. No tiene Release propio
+# para que la actualización automática del launcher no se confunda.
 on:
   push:
     branches: [main]
@@ -9,6 +10,9 @@ on:
       - mod/**
       - .github/workflows/mod.yml
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -30,3 +34,12 @@ jobs:
           name: novamenu
           path: mod/build/libs/*.jar
           if-no-files-found: error
+      - name: Subir el .jar al Release del launcher
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="v$(node -p "require('./launcher/package.json').version")"
+          gh release view "$version" >/dev/null 2>&1 \
+            || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher." \
+            || gh release view "$version" >/dev/null
+          gh release upload "$version" mod/build/libs/novamenu-*.jar --clobber

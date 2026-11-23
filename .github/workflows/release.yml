@@ -38,7 +38,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="v$(node -p "require('./launcher/package.json').version")"
-          gh release view "$version" >/dev/null 2>&1 || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher."
+          gh release view "$version" >/dev/null 2>&1 \
+            || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher." \
+            || gh release view "$version" >/dev/null
       - name: Compilar y publicar
         working-directory: launcher
         env:

@@ -14,7 +14,32 @@ function offlineUuid(username) {
   return hash.toString('hex');
 }
 
-function launchOptions({ account, gameRoot, instanceDir, versionId, javaPath, memoryGb, serverAddress }) {
+// Los mismos ajustes del recolector de basura que pone @xmcl/core por defecto
+// (al pasar argumentos propios dejan de aplicarse solos).
+const GC_ARGS = [
+  '-XX:+UnlockExperimentalVMOptions',
+  '-XX:+UseG1GC',
+  '-XX:G1NewSizePercent=20',
+  '-XX:G1ReservePercent=20',
+  '-XX:MaxGCPauseMillis=50',
+  '-XX:G1HeapRegionSize=32M',
+];
+
+// serverAddress: dirección del servidor, para el botón «Entrar al Nova 2» del
+//   mod del menú (carpeta mod/ del repo).
+// joinOnStart: entrar al servidor nada más abrir el juego.
+// freeMenu: menú principal normal de Minecraft, sin las restricciones del mod.
+function launchOptions({
+  account,
+  gameRoot,
+  instanceDir,
+  versionId,
+  javaPath,
+  memoryGb,
+  serverAddress,
+  joinOnStart = false,
+  freeMenu = false,
+}) {
   const microsoft = account.type === 'microsoft';
   const auth = microsoft ? account.mclcAuth : null;
   return {
@@ -39,7 +64,12 @@ function launchOptions({ account, gameRoot, instanceDir, versionId, javaPath, me
         auth_xuid: (microsoft && auth.meta && auth.meta.xuid) || '0',
       },
     },
-    ...(serverAddress ? { quickPlayMultiplayer: serverAddress } : {}),
+    extraJVMArgs: [
+      ...GC_ARGS,
+      ...(serverAddress ? [`-Dnova.server=${serverAddress}`] : []),
+      ...(freeMenu ? ['-Dnova.menuLibre=true'] : []),
+    ],
+    ...(serverAddress && joinOnStart ? { quickPlayMultiplayer: serverAddress } : {}),
   };
 }
 
