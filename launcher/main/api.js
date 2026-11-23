@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { t } = require('../i18n');
 
 // Cliente del backend del launcher (carpeta server/ del repo). No depende de
 // Electron: recibe la URL y el token en cada llamada.
@@ -32,11 +33,11 @@ async function request(baseUrl, pathname, { method = 'GET', token, body } = {}) 
       signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
   } catch {
-    throw new ApiError(0, 'No se pudo conectar con el servidor del launcher. Comprueba tu conexión.');
+    throw new ApiError(0, t('err.connect'));
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, (data && data.error) || `El servidor respondió ${res.status}.`);
-  if (!data) throw new ApiError(res.status, 'El servidor del launcher ha devuelto una respuesta inesperada.');
+  if (!res.ok) throw new ApiError(res.status, (data && data.error) || t('err.server', { status: res.status }));
+  if (!data) throw new ApiError(res.status, t('err.unexpected'));
   return data;
 }
 
@@ -48,11 +49,11 @@ async function downloadFile(baseUrl, pathname, token, destPath) {
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
   } catch {
-    throw new ApiError(0, 'Se cortó la conexión durante la descarga.');
+    throw new ApiError(0, t('err.downloadCut'));
   }
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => null);
-    throw new ApiError(res.status, (data && data.error) || `No se pudo descargar (estado ${res.status}).`);
+    throw new ApiError(res.status, (data && data.error) || t('err.download', { status: res.status }));
   }
   await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(destPath));
 }

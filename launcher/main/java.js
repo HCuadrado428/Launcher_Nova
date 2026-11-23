@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { installJavaRuntimeTask } = require('@xmcl/installer');
+const { t } = require('../i18n');
 
 // Java para el juego. Si el jugador no ha elegido uno en Ajustes, el launcher
 // usa su propia copia del Java oficial de Mojang (la misma que baja el
@@ -39,7 +40,7 @@ async function fetchJson(url) {
 async function fetchRuntimeManifest(target, indexUrl) {
   const index = await fetchJson(indexUrl);
   const entries = (index[runtimePlatform()] || {})[target];
-  if (!entries || entries.length === 0) throw new Error('Mojang no ofrece ese Java para este sistema.');
+  if (!entries || entries.length === 0) throw new Error(t('err.javaUnavailable'));
   const manifest = await fetchJson(entries[0].manifest.url);
   return { files: manifest.files, target, version: entries[0].version };
 }
@@ -68,7 +69,7 @@ async function ensureJava({ runtimeDir, mcVersion, customPath, onProgress = () =
   const wanted = runtimeFor(mcVersion);
 
   if (customPath) {
-    if (!fs.existsSync(customPath)) throw new Error('La ruta de Java de Ajustes ya no existe. Cámbiala o déjala en automático.');
+    if (!fs.existsSync(customPath)) throw new Error(t('err.javaPathGone'));
     const major = await javaMajor(customPath);
     return { javaPath: customPath, warning: major && major !== wanted.major ? { found: major, wanted: wanted.major } : null };
   }
@@ -78,12 +79,12 @@ async function ensureJava({ runtimeDir, mcVersion, customPath, onProgress = () =
   const marker = path.join(dir, '.nova-ok');
   if (fs.existsSync(marker) && fs.existsSync(exe)) return { javaPath: exe, warning: null };
 
-  onProgress({ label: `Descargando Java ${wanted.major}`, percent: 0 });
+  onProgress({ label: t('prog.java', { major: wanted.major }), percent: 0 });
   let manifest;
   try {
     manifest = await fetchRuntimeManifest(wanted.target, runtimeIndexUrl);
   } catch (err) {
-    throw new Error(`No se pudo descargar Java ${wanted.major}. Comprueba tu conexión e inténtalo de nuevo.`, {
+    throw new Error(t('err.javaDownload', { major: wanted.major }), {
       cause: err,
     });
   }
@@ -93,14 +94,14 @@ async function ensureJava({ runtimeDir, mcVersion, customPath, onProgress = () =
       onUpdate: () => {
         if (task.total) {
           onProgress({
-            label: `Descargando Java ${wanted.major}`,
+            label: t('prog.java', { major: wanted.major }),
             percent: Math.min(100, Math.round((task.progress / task.total) * 100)),
           });
         }
       },
     });
   } catch (err) {
-    throw new Error(`Se cortó la descarga de Java ${wanted.major}. Vuelve a pulsar Jugar para continuarla.`, { cause: err });
+    throw new Error(t('err.javaCut', { major: wanted.major }), { cause: err });
   }
   // El instalador no marca los ejecutables (en Windows no hace falta).
   if (process.platform !== 'win32') {
@@ -108,7 +109,7 @@ async function ensureJava({ runtimeDir, mcVersion, customPath, onProgress = () =
       if (entry.type === 'file' && entry.executable) fs.chmodSync(path.join(dir, file), 0o755);
     }
   }
-  if (!fs.existsSync(exe)) throw new Error('La descarga de Java ha terminado pero no se encuentra el ejecutable.');
+  if (!fs.existsSync(exe)) throw new Error(t('err.javaNoExe'));
   fs.writeFileSync(marker, manifest.version.name);
   return { javaPath: exe, warning: null };
 }

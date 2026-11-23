@@ -1,0 +1,493 @@
+// ======================================================
+// Textos del launcher en español, inglés y portugués
+// ======================================================
+//
+// Un solo archivo para los dos lados: la ventana lo carga con <script>
+// (window.NovaI18n) y el proceso principal con require(). Las tres listas
+// tienen las mismas claves (test/i18n.test.js lo comprueba). Los huecos van
+// entre llaves: t('pack.mods', { n: 12 }).
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.NovaI18n = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  const es = {
+    'common.settings': 'Ajustes',
+    'common.cancel': 'Cancelar',
+    'common.save': 'Guardar',
+    'common.done': 'Hecho',
+    'common.close': 'Cerrar',
+    'common.retry': 'Reintentar',
+
+    'login.signal': 'SEÑAL PERDIDA... IDENTIFÍCATE',
+    'login.microsoft': 'ENTRAR CON MICROSOFT',
+    'login.microsoftOpening': 'ABRIENDO MICROSOFT...',
+    'login.orOffline': 'o sin cuenta premium',
+    'login.nick': 'Tu nick',
+    'login.enter': 'Entrar',
+
+    'account.microsoft': 'Cuenta Microsoft',
+    'account.offline': 'Sin premium',
+
+    'server.label': 'SERVIDOR',
+    'server.checking': 'Comprobando...',
+    'server.noData': 'Sin datos',
+    'server.online': 'Online',
+    'server.onlineCount': 'Online · {online}/{max}',
+    'server.offline': 'Offline',
+    'server.copyIp': 'Copiar la IP',
+    'server.ipCopied': 'IP copiada.',
+
+    'side.web': 'Web del servidor',
+    'side.logout': 'Cerrar sesión',
+
+    'update.text': 'Hay una versión nueva del launcher (v{version}) lista para instalar.',
+    'update.button': 'Reiniciar y actualizar',
+
+    'pack.tag.normal': 'MODPACK DEL SERVIDOR',
+    'pack.tag.admin': 'SOLO ADMINS',
+    'pack.tag.other': 'MODPACK',
+    'pack.mods': '{n} mods',
+    'pack.updatedOn': 'Actualizado el {date}',
+    'pack.status.ready': 'AL DÍA · LISTO PARA JUGAR',
+    'pack.status.update': 'HAY CAMBIOS · SE APLICAN AL PULSAR JUGAR',
+    'pack.status.not-installed': 'SIN INSTALAR · SE DESCARGA AL PULSAR JUGAR',
+    'pack.empty': 'ESTE MODPACK TODAVÍA NO TIENE MODS',
+
+    'stage.noBackend.title': 'SIN SEÑAL',
+    'stage.noBackend.text':
+      'Este launcher todavía no sabe dónde está su servidor. Pon la dirección en Ajustes > Avanzado.',
+    'stage.lost.title': 'SEÑAL PERDIDA',
+
+    'news.title': 'NOVEDADES',
+    'event.next': 'PRÓXIMO EVENTO',
+    'event.now': '¡Ha llegado la hora!',
+    'event.local': 'En tu hora: {local}',
+
+    'play.play': 'JUGAR',
+    'play.install': 'INSTALAR Y JUGAR',
+    'play.preparing': 'PREPARANDO',
+    'play.close': 'CERRAR JUEGO',
+    'play.preparingLabel': 'Preparando...',
+    'play.running': 'Minecraft está abierto. ¡Buen viaje!',
+    'play.closeFirst': 'Cierra antes el juego.',
+    'console.title': 'Consola del juego',
+
+    'settings.title': 'AJUSTES',
+    'settings.memory': 'Memoria para Minecraft:',
+    'settings.memoryHint': 'Para este modpack van bien entre 6 y 8 GB si tu equipo los tiene.',
+    'settings.join': 'Saltarse el menú y entrar al servidor al abrir el juego (solo modpack normal)',
+    'settings.java': 'Java',
+    'settings.javaAuto': 'Automático (lo descarga el launcher)',
+    'settings.pick': 'Elegir',
+    'settings.language': 'Idioma',
+    'settings.pack': 'Modpack seleccionado',
+    'settings.openFolder': 'Abrir carpeta',
+    'settings.repair': 'Reparar mods',
+    'settings.repairDone': 'Hecho. La próxima vez que pulses Jugar se volverán a comprobar y descargar los mods.',
+    'settings.logs': 'Guardar registros',
+    'settings.advanced': 'Avanzado',
+    'settings.backend': 'Dirección del servidor del launcher',
+
+    'mods.button': 'Mods',
+    'mods.title': 'MODS',
+    'mods.optional': 'Opcionales del modpack',
+    'mods.optionalHint': 'Desmarca los que no quieras. El cambio se aplica la próxima vez que pulses Jugar.',
+    'mods.optionalEmpty': 'Este modpack no tiene mods opcionales.',
+    'mods.own': 'Tus mods',
+    'mods.ownHint': 'Los que añadas tú. El modpack no los toca al actualizarse.',
+    'mods.ownEmpty': 'No has añadido ninguno.',
+    'mods.add': 'Añadir mods...',
+    'mods.remove': 'Quitar',
+    'mods.removeLabel': 'Quitar {name}',
+    'mods.skipped': 'No se han añadido (ya son del modpack o el nombre no vale): {names}',
+    'mods.closeFirst': 'Cierra antes el juego para cambiar los mods.',
+
+    'crash.title': 'MINECRAFT SE HA CERRADO POR UN ERROR',
+    'crash.code': 'Código de salida: {code}',
+    'crash.what': 'Qué ha pasado',
+    'crash.suspects': 'Mod que probablemente lo ha causado',
+    'crash.noReport': 'El juego no ha dejado ningún informe de error.',
+    'crash.oom': 'El juego se ha quedado sin memoria. Prueba a darle más en Ajustes.',
+    'crash.help': 'Guarda los registros y manda ese archivo por Discord para que te puedan ayudar.',
+    'crash.save': 'Guardar registros',
+
+    'logs.saved': 'Registros guardados. Manda ese archivo por Discord.',
+    'logs.none': 'Todavía no hay registros de este modpack.',
+    'logs.dialog': 'Guardar los registros',
+
+    'dialog.pickJava': 'Elige el ejecutable de Java',
+    'dialog.pickMods': 'Elige los mods que quieres añadir',
+
+    'prog.checkPack': 'Comprobando el modpack',
+    'prog.java': 'Descargando Java {major}',
+    'prog.minecraft': 'Descargando Minecraft',
+    'prog.forge': 'Instalando Forge',
+    'prog.libs': 'Descargando librerías',
+    'prog.syncMods': 'Sincronizando mods',
+    'prog.mods': 'Descargando mods {done}/{total} · {doneMb} MB de {totalMb} MB',
+    'prog.msLogin': 'Iniciando sesión en Minecraft',
+    'prog.starting': 'Arrancando Minecraft',
+    'warn.java':
+      '[AVISO] Minecraft {mc} pide Java {wanted} y el de Ajustes es Java {found}. Puede que no arranque.',
+
+    'err.msExpired': 'La sesión de Microsoft ha caducado. Cierra sesión y vuelve a entrar.',
+    'err.notLogged': 'No has iniciado sesión.',
+    'err.noGame': 'Esa cuenta de Microsoft no tiene Minecraft Java comprado.',
+    'err.msFailed': 'No se pudo completar el inicio de sesión con Microsoft.',
+    'err.nick': 'El nick debe tener entre 3 y 16 caracteres: letras, números y _.',
+    'err.notYourMod': 'Ese mod no es tuyo o ya no está.',
+    'err.onlyForge': 'Este launcher solo sabe lanzar modpacks de Forge.',
+    'err.busy': 'El juego ya está abierto o preparándose.',
+    'err.backendUrl': 'La dirección del servidor debe empezar por https://',
+    'err.badPack': 'Modpack no válido.',
+    'err.forgeVersions': 'No se pudo consultar las versiones de Forge (estado {status}).',
+    'err.noForge': 'No hay ninguna versión de Forge para Minecraft {mc}.',
+    'err.mcMissing': 'Minecraft {mc} no aparece en la lista de versiones de Mojang.',
+    'err.forgeInstall': 'No se pudo instalar Forge {forge} para Minecraft {mc}: {detail}',
+    'err.javaUnavailable': 'Mojang no ofrece ese Java para este sistema.',
+    'err.javaPathGone': 'La ruta de Java de Ajustes ya no existe. Cámbiala o déjala en automático.',
+    'err.javaDownload': 'No se pudo descargar Java {major}. Comprueba tu conexión e inténtalo de nuevo.',
+    'err.javaCut': 'Se cortó la descarga de Java {major}. Vuelve a pulsar Jugar para continuarla.',
+    'err.javaNoExe': 'La descarga de Java ha terminado pero no se encuentra el ejecutable.',
+    'err.missingLibs': 'Faltan librerías del juego.',
+    'err.corruptJar': 'El archivo del juego está dañado.',
+    'err.missingJar': 'Falta el archivo del juego.',
+    'err.repairHint': '{reason} Pulsa «Reparar mods» en Ajustes y vuelve a intentarlo.',
+    'err.noStart': 'No se pudo iniciar Java: {detail}',
+    'err.badFile': 'El modpack contiene un archivo con un nombre no válido: {name}',
+    'err.damaged': '{name} se descargó dañado. Vuelve a intentarlo.',
+    'err.connect': 'No se pudo conectar con el servidor del launcher. Comprueba tu conexión.',
+    'err.server': 'El servidor respondió {status}.',
+    'err.unexpected': 'El servidor del launcher ha devuelto una respuesta inesperada.',
+    'err.downloadCut': 'Se cortó la conexión durante la descarga.',
+    'err.download': 'No se pudo descargar (estado {status}).',
+  };
+
+  const en = {
+    'common.settings': 'Settings',
+    'common.cancel': 'Cancel',
+    'common.save': 'Save',
+    'common.done': 'Done',
+    'common.close': 'Close',
+    'common.retry': 'Retry',
+
+    'login.signal': 'SIGNAL LOST... IDENTIFY YOURSELF',
+    'login.microsoft': 'SIGN IN WITH MICROSOFT',
+    'login.microsoftOpening': 'OPENING MICROSOFT...',
+    'login.orOffline': 'or without a premium account',
+    'login.nick': 'Your nickname',
+    'login.enter': 'Enter',
+
+    'account.microsoft': 'Microsoft account',
+    'account.offline': 'Non-premium',
+
+    'server.label': 'SERVER',
+    'server.checking': 'Checking...',
+    'server.noData': 'No data',
+    'server.online': 'Online',
+    'server.onlineCount': 'Online · {online}/{max}',
+    'server.offline': 'Offline',
+    'server.copyIp': 'Copy the IP',
+    'server.ipCopied': 'IP copied.',
+
+    'side.web': 'Server website',
+    'side.logout': 'Sign out',
+
+    'update.text': 'A new version of the launcher (v{version}) is ready to install.',
+    'update.button': 'Restart and update',
+
+    'pack.tag.normal': 'SERVER MODPACK',
+    'pack.tag.admin': 'ADMINS ONLY',
+    'pack.tag.other': 'MODPACK',
+    'pack.mods': '{n} mods',
+    'pack.updatedOn': 'Updated {date}',
+    'pack.status.ready': 'UP TO DATE · READY TO PLAY',
+    'pack.status.update': 'CHANGES PENDING · APPLIED WHEN YOU PRESS PLAY',
+    'pack.status.not-installed': 'NOT INSTALLED · DOWNLOADS WHEN YOU PRESS PLAY',
+    'pack.empty': 'THIS MODPACK HAS NO MODS YET',
+
+    'stage.noBackend.title': 'NO SIGNAL',
+    'stage.noBackend.text': "This launcher doesn't know where its server is yet. Set the address in Settings > Advanced.",
+    'stage.lost.title': 'SIGNAL LOST',
+
+    'news.title': 'NEWS',
+    'event.next': 'NEXT EVENT',
+    'event.now': "It's time!",
+    'event.local': 'Your time: {local}',
+
+    'play.play': 'PLAY',
+    'play.install': 'INSTALL AND PLAY',
+    'play.preparing': 'PREPARING',
+    'play.close': 'CLOSE GAME',
+    'play.preparingLabel': 'Preparing...',
+    'play.running': 'Minecraft is open. Have a good trip!',
+    'play.closeFirst': 'Close the game first.',
+    'console.title': 'Game console',
+
+    'settings.title': 'SETTINGS',
+    'settings.memory': 'Memory for Minecraft:',
+    'settings.memoryHint': 'This modpack runs well with 6 to 8 GB, if your computer has them.',
+    'settings.join': 'Skip the menu and join the server when the game opens (normal modpack only)',
+    'settings.java': 'Java',
+    'settings.javaAuto': 'Automatic (the launcher downloads it)',
+    'settings.pick': 'Choose',
+    'settings.language': 'Language',
+    'settings.pack': 'Selected modpack',
+    'settings.openFolder': 'Open folder',
+    'settings.repair': 'Repair mods',
+    'settings.repairDone': 'Done. The next time you press Play, the mods will be checked and downloaded again.',
+    'settings.logs': 'Save logs',
+    'settings.advanced': 'Advanced',
+    'settings.backend': 'Launcher server address',
+
+    'mods.button': 'Mods',
+    'mods.title': 'MODS',
+    'mods.optional': 'Optional mods',
+    'mods.optionalHint': "Untick the ones you don't want. The change applies the next time you press Play.",
+    'mods.optionalEmpty': 'This modpack has no optional mods.',
+    'mods.own': 'Your mods',
+    'mods.ownHint': 'The ones you add yourself. The modpack leaves them alone when it updates.',
+    'mods.ownEmpty': "You haven't added any.",
+    'mods.add': 'Add mods...',
+    'mods.remove': 'Remove',
+    'mods.removeLabel': 'Remove {name}',
+    'mods.skipped': 'Not added (already part of the modpack, or the name is not valid): {names}',
+    'mods.closeFirst': 'Close the game before changing mods.',
+
+    'crash.title': 'MINECRAFT CLOSED BECAUSE OF AN ERROR',
+    'crash.code': 'Exit code: {code}',
+    'crash.what': 'What happened',
+    'crash.suspects': 'Mod that probably caused it',
+    'crash.noReport': 'The game did not leave a crash report.',
+    'crash.oom': 'The game ran out of memory. Try giving it more in Settings.',
+    'crash.help': 'Save the logs and send that file on Discord so someone can help you.',
+    'crash.save': 'Save logs',
+
+    'logs.saved': 'Logs saved. Send that file on Discord.',
+    'logs.none': 'There are no logs for this modpack yet.',
+    'logs.dialog': 'Save the logs',
+
+    'dialog.pickJava': 'Choose the Java executable',
+    'dialog.pickMods': 'Choose the mods you want to add',
+
+    'prog.checkPack': 'Checking the modpack',
+    'prog.java': 'Downloading Java {major}',
+    'prog.minecraft': 'Downloading Minecraft',
+    'prog.forge': 'Installing Forge',
+    'prog.libs': 'Downloading libraries',
+    'prog.syncMods': 'Syncing mods',
+    'prog.mods': 'Downloading mods {done}/{total} · {doneMb} MB of {totalMb} MB',
+    'prog.msLogin': 'Signing in to Minecraft',
+    'prog.starting': 'Starting Minecraft',
+    'warn.java': '[WARNING] Minecraft {mc} needs Java {wanted} and the one in Settings is Java {found}. It may not start.',
+
+    'err.msExpired': 'Your Microsoft session has expired. Sign out and sign in again.',
+    'err.notLogged': 'You are not signed in.',
+    'err.noGame': 'That Microsoft account does not own Minecraft Java.',
+    'err.msFailed': 'The Microsoft sign-in could not be completed.',
+    'err.nick': 'The nickname must be 3 to 16 characters: letters, numbers and _.',
+    'err.notYourMod': 'That mod is not yours, or it is no longer there.',
+    'err.onlyForge': 'This launcher can only start Forge modpacks.',
+    'err.busy': 'The game is already open or getting ready.',
+    'err.backendUrl': 'The server address must start with https://',
+    'err.badPack': 'Invalid modpack.',
+    'err.forgeVersions': 'Could not look up Forge versions (status {status}).',
+    'err.noForge': 'There is no Forge version for Minecraft {mc}.',
+    'err.mcMissing': "Minecraft {mc} is not in Mojang's version list.",
+    'err.forgeInstall': 'Could not install Forge {forge} for Minecraft {mc}: {detail}',
+    'err.javaUnavailable': 'Mojang does not offer that Java for this system.',
+    'err.javaPathGone': 'The Java path in Settings no longer exists. Change it or leave it on automatic.',
+    'err.javaDownload': 'Could not download Java {major}. Check your connection and try again.',
+    'err.javaCut': 'The Java {major} download was interrupted. Press Play again to resume it.',
+    'err.javaNoExe': 'The Java download finished but the executable cannot be found.',
+    'err.missingLibs': 'Game libraries are missing.',
+    'err.corruptJar': 'The game file is damaged.',
+    'err.missingJar': 'The game file is missing.',
+    'err.repairHint': '{reason} Press "Repair mods" in Settings and try again.',
+    'err.noStart': 'Java could not be started: {detail}',
+    'err.badFile': 'The modpack contains a file with an invalid name: {name}',
+    'err.damaged': '{name} was damaged during download. Try again.',
+    'err.connect': 'Could not connect to the launcher server. Check your connection.',
+    'err.server': 'The server answered {status}.',
+    'err.unexpected': 'The launcher server returned an unexpected response.',
+    'err.downloadCut': 'The connection dropped during the download.',
+    'err.download': 'Could not download (status {status}).',
+  };
+
+  const pt = {
+    'common.settings': 'Configurações',
+    'common.cancel': 'Cancelar',
+    'common.save': 'Salvar',
+    'common.done': 'Pronto',
+    'common.close': 'Fechar',
+    'common.retry': 'Tentar de novo',
+
+    'login.signal': 'SINAL PERDIDO... IDENTIFIQUE-SE',
+    'login.microsoft': 'ENTRAR COM MICROSOFT',
+    'login.microsoftOpening': 'ABRINDO MICROSOFT...',
+    'login.orOffline': 'ou sem conta premium',
+    'login.nick': 'Seu nick',
+    'login.enter': 'Entrar',
+
+    'account.microsoft': 'Conta Microsoft',
+    'account.offline': 'Sem premium',
+
+    'server.label': 'SERVIDOR',
+    'server.checking': 'Verificando...',
+    'server.noData': 'Sem dados',
+    'server.online': 'Online',
+    'server.onlineCount': 'Online · {online}/{max}',
+    'server.offline': 'Offline',
+    'server.copyIp': 'Copiar o IP',
+    'server.ipCopied': 'IP copiado.',
+
+    'side.web': 'Site do servidor',
+    'side.logout': 'Sair da conta',
+
+    'update.text': 'Há uma versão nova do launcher (v{version}) pronta para instalar.',
+    'update.button': 'Reiniciar e atualizar',
+
+    'pack.tag.normal': 'MODPACK DO SERVIDOR',
+    'pack.tag.admin': 'SÓ ADMINS',
+    'pack.tag.other': 'MODPACK',
+    'pack.mods': '{n} mods',
+    'pack.updatedOn': 'Atualizado em {date}',
+    'pack.status.ready': 'EM DIA · PRONTO PARA JOGAR',
+    'pack.status.update': 'HÁ MUDANÇAS · SÃO APLICADAS AO CLICAR EM JOGAR',
+    'pack.status.not-installed': 'NÃO INSTALADO · BAIXA AO CLICAR EM JOGAR',
+    'pack.empty': 'ESTE MODPACK AINDA NÃO TEM MODS',
+
+    'stage.noBackend.title': 'SEM SINAL',
+    'stage.noBackend.text':
+      'Este launcher ainda não sabe onde fica o seu servidor. Coloque o endereço em Configurações > Avançado.',
+    'stage.lost.title': 'SINAL PERDIDO',
+
+    'news.title': 'NOVIDADES',
+    'event.next': 'PRÓXIMO EVENTO',
+    'event.now': 'Chegou a hora!',
+    'event.local': 'No seu horário: {local}',
+
+    'play.play': 'JOGAR',
+    'play.install': 'INSTALAR E JOGAR',
+    'play.preparing': 'PREPARANDO',
+    'play.close': 'FECHAR JOGO',
+    'play.preparingLabel': 'Preparando...',
+    'play.running': 'O Minecraft está aberto. Boa viagem!',
+    'play.closeFirst': 'Feche o jogo antes.',
+    'console.title': 'Console do jogo',
+
+    'settings.title': 'CONFIGURAÇÕES',
+    'settings.memory': 'Memória para o Minecraft:',
+    'settings.memoryHint': 'Este modpack roda bem com 6 a 8 GB, se o seu computador tiver.',
+    'settings.join': 'Pular o menu e entrar no servidor ao abrir o jogo (só modpack normal)',
+    'settings.java': 'Java',
+    'settings.javaAuto': 'Automático (o launcher baixa)',
+    'settings.pick': 'Escolher',
+    'settings.language': 'Idioma',
+    'settings.pack': 'Modpack selecionado',
+    'settings.openFolder': 'Abrir pasta',
+    'settings.repair': 'Reparar mods',
+    'settings.repairDone': 'Pronto. Na próxima vez que você clicar em Jogar, os mods serão verificados e baixados de novo.',
+    'settings.logs': 'Salvar registros',
+    'settings.advanced': 'Avançado',
+    'settings.backend': 'Endereço do servidor do launcher',
+
+    'mods.button': 'Mods',
+    'mods.title': 'MODS',
+    'mods.optional': 'Opcionais do modpack',
+    'mods.optionalHint': 'Desmarque os que você não quiser. A mudança vale na próxima vez que clicar em Jogar.',
+    'mods.optionalEmpty': 'Este modpack não tem mods opcionais.',
+    'mods.own': 'Seus mods',
+    'mods.ownHint': 'Os que você adicionar. O modpack não mexe neles ao atualizar.',
+    'mods.ownEmpty': 'Você não adicionou nenhum.',
+    'mods.add': 'Adicionar mods...',
+    'mods.remove': 'Remover',
+    'mods.removeLabel': 'Remover {name}',
+    'mods.skipped': 'Não foram adicionados (já são do modpack ou o nome não é válido): {names}',
+    'mods.closeFirst': 'Feche o jogo antes de mudar os mods.',
+
+    'crash.title': 'O MINECRAFT FECHOU POR CAUSA DE UM ERRO',
+    'crash.code': 'Código de saída: {code}',
+    'crash.what': 'O que aconteceu',
+    'crash.suspects': 'Mod que provavelmente causou',
+    'crash.noReport': 'O jogo não deixou nenhum relatório de erro.',
+    'crash.oom': 'O jogo ficou sem memória. Tente dar mais em Configurações.',
+    'crash.help': 'Salve os registros e mande esse arquivo pelo Discord para que possam ajudar.',
+    'crash.save': 'Salvar registros',
+
+    'logs.saved': 'Registros salvos. Mande esse arquivo pelo Discord.',
+    'logs.none': 'Ainda não há registros deste modpack.',
+    'logs.dialog': 'Salvar os registros',
+
+    'dialog.pickJava': 'Escolha o executável do Java',
+    'dialog.pickMods': 'Escolha os mods que você quer adicionar',
+
+    'prog.checkPack': 'Verificando o modpack',
+    'prog.java': 'Baixando Java {major}',
+    'prog.minecraft': 'Baixando Minecraft',
+    'prog.forge': 'Instalando Forge',
+    'prog.libs': 'Baixando bibliotecas',
+    'prog.syncMods': 'Sincronizando mods',
+    'prog.mods': 'Baixando mods {done}/{total} · {doneMb} MB de {totalMb} MB',
+    'prog.msLogin': 'Entrando no Minecraft',
+    'prog.starting': 'Iniciando o Minecraft',
+    'warn.java': '[AVISO] O Minecraft {mc} pede Java {wanted} e o das Configurações é Java {found}. Pode não iniciar.',
+
+    'err.msExpired': 'A sessão da Microsoft expirou. Saia da conta e entre de novo.',
+    'err.notLogged': 'Você não entrou na conta.',
+    'err.noGame': 'Essa conta Microsoft não tem o Minecraft Java comprado.',
+    'err.msFailed': 'Não foi possível concluir o login com a Microsoft.',
+    'err.nick': 'O nick deve ter de 3 a 16 caracteres: letras, números e _.',
+    'err.notYourMod': 'Esse mod não é seu ou não está mais lá.',
+    'err.onlyForge': 'Este launcher só sabe iniciar modpacks de Forge.',
+    'err.busy': 'O jogo já está aberto ou sendo preparado.',
+    'err.backendUrl': 'O endereço do servidor deve começar com https://',
+    'err.badPack': 'Modpack inválido.',
+    'err.forgeVersions': 'Não foi possível consultar as versões do Forge (status {status}).',
+    'err.noForge': 'Não há nenhuma versão do Forge para o Minecraft {mc}.',
+    'err.mcMissing': 'O Minecraft {mc} não aparece na lista de versões da Mojang.',
+    'err.forgeInstall': 'Não foi possível instalar o Forge {forge} para o Minecraft {mc}: {detail}',
+    'err.javaUnavailable': 'A Mojang não oferece esse Java para este sistema.',
+    'err.javaPathGone': 'O caminho do Java nas Configurações não existe mais. Mude ou deixe no automático.',
+    'err.javaDownload': 'Não foi possível baixar o Java {major}. Verifique sua conexão e tente de novo.',
+    'err.javaCut': 'O download do Java {major} foi interrompido. Clique em Jogar de novo para continuar.',
+    'err.javaNoExe': 'O download do Java terminou, mas o executável não foi encontrado.',
+    'err.missingLibs': 'Faltam bibliotecas do jogo.',
+    'err.corruptJar': 'O arquivo do jogo está danificado.',
+    'err.missingJar': 'Falta o arquivo do jogo.',
+    'err.repairHint': '{reason} Clique em «Reparar mods» nas Configurações e tente de novo.',
+    'err.noStart': 'Não foi possível iniciar o Java: {detail}',
+    'err.badFile': 'O modpack contém um arquivo com nome inválido: {name}',
+    'err.damaged': '{name} foi baixado danificado. Tente de novo.',
+    'err.connect': 'Não foi possível conectar ao servidor do launcher. Verifique sua conexão.',
+    'err.server': 'O servidor respondeu {status}.',
+    'err.unexpected': 'O servidor do launcher devolveu uma resposta inesperada.',
+    'err.downloadCut': 'A conexão caiu durante o download.',
+    'err.download': 'Não foi possível baixar (status {status}).',
+  };
+
+  const LANGUAGES = { es, en, pt };
+  const NAMES = { es: 'Español', en: 'English', pt: 'Português' };
+  const LOCALES = { es: 'es-ES', en: 'en-GB', pt: 'pt-BR' };
+  let current = 'es';
+
+  // Idioma soportado a partir de un código del sistema ("pt-BR" -> "pt").
+  function pickLanguage(code) {
+    const short = String(code || '').slice(0, 2).toLowerCase();
+    return LANGUAGES[short] ? short : 'es';
+  }
+
+  function setLanguage(code) {
+    current = pickLanguage(code);
+    return current;
+  }
+
+  function t(key, params) {
+    const text = LANGUAGES[current][key] || es[key] || key;
+    if (!params) return text;
+    return text.replace(/\{(\w+)\}/g, (hole, name) => (name in params ? String(params[name]) : hole));
+  }
+
+  return { LANGUAGES, NAMES, LOCALES, pickLanguage, setLanguage, getLanguage: () => current, t };
+});

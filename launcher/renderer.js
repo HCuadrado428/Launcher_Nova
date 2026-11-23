@@ -4,31 +4,42 @@
 
 const $ = (id) => document.getElementById(id);
 const bridge = window.nova;
+const i18n = window.NovaI18n;
+const { t } = i18n;
 
-const PACK_TAGS = { normal: 'MODPACK DEL SERVIDOR', admin: 'SOLO ADMINS' };
-const STATUS_TEXT = {
-  ready: 'AL DÍA · LISTO PARA JUGAR',
-  update: 'HAY UNA ACTUALIZACIÓN · SE DESCARGA AL PULSAR JUGAR',
-  'not-installed': 'SIN INSTALAR · SE DESCARGA AL PULSAR JUGAR',
-};
 const SERVER_REFRESH_MS = 60_000;
 const MAX_LOG_LINES = 600;
 
 let state = null; // respuesta de get-state
 let modpacks = [];
+let news = null;
+let serverEvent = null;
+let serverStatus; // undefined = aún no se ha consultado
 let selectedId = 'normal';
 let phase = 'idle'; // idle | preparing | running
 const logLines = [];
 
 // ---------- Utilidades ----------
 
+// Los avisos van en la capa superior del navegador (popover) para que se
+// vean también con una ventana de diálogo abierta.
 function toast(message, type = 'ok') {
+  const box = $('toasts');
   const el = document.createElement('div');
   el.className = 'toast';
   el.dataset.type = type;
   el.textContent = message;
-  $('toasts').append(el);
-  setTimeout(() => el.remove(), type === 'error' ? 9000 : 4500);
+  box.append(el);
+  if (box.matches(':popover-open')) box.hidePopover();
+  box.showPopover();
+  setTimeout(() => {
+    el.remove();
+    if (box.children.length === 0 && box.matches(':popover-open')) box.hidePopover();
+  }, type === 'error' ? 9000 : 4500);
+}
+
+function locale() {
+  return i18n.LOCALES[i18n.getLanguage()];
 }
 
 function formatSize(bytes) {
@@ -38,7 +49,7 @@ function formatSize(bytes) {
 
 function formatDate(iso) {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 // Los errores que cruzan desde el proceso principal llegan con un prefijo
@@ -51,21 +62,50 @@ function setView(view) {
   document.body.dataset.view = view;
 }
 
+// ---------- Idioma ----------
+
+// Rellena los textos fijos del HTML (data-i18n / data-i18n-attr).
+function applyStaticTexts() {
+  document.documentElement.lang = i18n.getLanguage();
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-attr]')) {
+    for (const pair of el.dataset.i18nAttr.split('|')) {
+      const [attr, key] = pair.split(':');
+      el.setAttribute(attr, t(key));
+    }
+  }
+}
+
+// Repinta todo lo que depende del idioma.
+function applyLanguage() {
+  applyStaticTexts();
+  if (state && state.account) renderAccount();
+  renderServerStatus();
+  if (modpacks.length > 0) renderModpacks();
+  renderInfo();
+  renderPlayButton();
+  renderUpdate();
+}
+
 // ---------- Cuenta ----------
 
 function renderAccount() {
   const account = state.account;
   if (!account) return;
   $('accountName').textContent = account.username;
-  $('accountType').textContent = account.type === 'microsoft' ? 'Cuenta Microsoft' : 'Sin premium';
+  $('accountType').textContent = t(account.type === 'microsoft' ? 'account.microsoft' : 'account.offline');
   $('adminBadge').hidden = !account.admin;
 
   const avatar = $('avatar');
+  if (avatar.dataset.user === account.username) return;
+  avatar.dataset.user = account.username;
   avatar.textContent = account.username[0].toUpperCase();
   if (account.type === 'microsoft' && account.uuid) {
     const img = new Image();
     img.alt = '';
-    img.onload = () => avatar.replaceChildren(img);
+    img.onload = () => {
+      if (avatar.dataset.user === account.username) avatar.replaceChildren(img);
+    };
     img.src = `https://mc-heads.net/avatar/${encodeURIComponent(account.uuid)}/80`;
   }
 }
@@ -97,14 +137,14 @@ async function handleLogin(result) {
 $('msLoginBtn').addEventListener('click', async () => {
   const button = $('msLoginBtn');
   button.disabled = true;
-  button.textContent = 'ABRIENDO MICROSOFT...';
+  button.textContent = t('login.microsoftOpening');
   try {
     await handleLogin(await bridge.loginMicrosoft());
   } catch (err) {
     showLoginError(errorText(err));
   } finally {
     button.disabled = false;
-    button.textContent = 'ENTRAR CON MICROSOFT';
+    button.textContent = t('login.microsoft');
   }
 });
 
@@ -123,30 +163,41 @@ $('offlineForm').addEventListener('submit', async (e) => {
 
 $('logoutBtn').addEventListener('click', async () => {
   if (phase !== 'idle') {
-    toast('Cierra antes el juego.', 'error');
+    toast(t('play.closeFirst'), 'error');
     return;
   }
   await bridge.logout();
   state.account = null;
   modpacks = [];
+  delete $('avatar').dataset.user;
   setView('login');
 });
 
 // ---------- Servidor ----------
 
-async function refreshServerStatus() {
-  const status = await bridge.serverStatus().catch(() => null);
+function renderServerStatus() {
   const box = $('serverBox');
-  if (!status) {
+  if (serverStatus === undefined) {
     box.dataset.state = 'unknown';
-    $('serverText').textContent = 'Sin datos';
-  } else if (status.online) {
+    $('serverText').textContent = t('server.checking');
+  } else if (!serverStatus) {
+    box.dataset.state = 'unknown';
+    $('serverText').textContent = t('server.noData');
+  } else if (serverStatus.online) {
     box.dataset.state = 'online';
-    $('serverText').textContent = status.players === null ? 'Online' : `Online · ${status.players}/${status.max}`;
+    $('serverText').textContent =
+      serverStatus.players === null
+        ? t('server.online')
+        : t('server.onlineCount', { online: serverStatus.players, max: serverStatus.max });
   } else {
     box.dataset.state = 'offline';
-    $('serverText').textContent = 'Offline';
+    $('serverText').textContent = t('server.offline');
   }
+}
+
+async function refreshServerStatus() {
+  serverStatus = await bridge.serverStatus().catch(() => null);
+  renderServerStatus();
 }
 setInterval(() => {
   if (document.body.dataset.view === 'main' && !document.hidden) refreshServerStatus();
@@ -155,7 +206,7 @@ setInterval(() => {
 $('copyIpBtn').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(state.serverAddress);
-    toast('IP copiada.');
+    toast(t('server.ipCopied'));
   } catch {
     toast(state.serverAddress);
   }
@@ -163,11 +214,62 @@ $('copyIpBtn').addEventListener('click', async () => {
 
 $('webBtn').addEventListener('click', () => bridge.openWeb());
 
+// ---------- Novedades y evento ----------
+
+// Cuenta atrás del próximo evento: "2 d 03 h 15 min" y, el último día, con
+// segundos. Durante el evento dice que ya ha llegado la hora; después se quita.
+function renderEvent() {
+  const card = $('eventCard');
+  if (!serverEvent) {
+    card.hidden = true;
+    return false;
+  }
+  const start = new Date(serverEvent.start).getTime();
+  const end = start + (serverEvent.hours || 3) * 3_600_000;
+  const now = Date.now();
+  if (Number.isNaN(start) || now >= end) {
+    card.hidden = true;
+    return false;
+  }
+  $('eventName').textContent = serverEvent.name;
+  if (now >= start) {
+    $('eventCountdown').textContent = t('event.now');
+  } else {
+    const total = Math.floor((start - now) / 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    $('eventCountdown').textContent =
+      days > 0 ? `${days} d ${pad(hours)} h ${pad(minutes)} min` : `${pad(hours)} h ${pad(minutes)} min ${pad(total % 60)} s`;
+  }
+  $('eventLocal').textContent = t('event.local', {
+    local: new Date(start).toLocaleString(locale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+  });
+  card.hidden = false;
+  return true;
+}
+
+function renderInfo() {
+  const hasEvent = renderEvent();
+  const hasNews = Boolean(news && news.text);
+  $('newsCard').hidden = !hasNews;
+  if (hasNews) {
+    $('newsText').textContent = news.text;
+    $('newsDate').textContent = formatDate(news.updatedAt) || '';
+  }
+  $('infoBox').hidden = !(hasEvent || hasNews) || !$('stageEmpty').hidden;
+}
+setInterval(() => {
+  if (serverEvent && document.body.dataset.view === 'main' && !document.hidden) renderInfo();
+}, 1000);
+
 // ---------- Modpacks ----------
 
 function showStageError(title, text) {
   $('hero').hidden = true;
   $('launchBox').hidden = true;
+  $('infoBox').hidden = true;
   $('packTabs').replaceChildren();
   $('stageEmpty').hidden = false;
   $('emptyTitle').textContent = title;
@@ -176,19 +278,20 @@ function showStageError(title, text) {
 
 async function loadModpacks() {
   if (!state.settings.backendConfigured) {
-    showStageError(
-      'SIN SEÑAL',
-      'Este launcher todavía no sabe dónde está su servidor. Pon la dirección en Ajustes > Avanzado.',
-    );
+    modpacks = [];
+    showStageError(t('stage.noBackend.title'), t('stage.noBackend.text'));
     return;
   }
   try {
     const data = await bridge.getModpacks();
     modpacks = data.modpacks;
+    news = data.news;
+    serverEvent = data.event;
     state.account = data.account;
     renderAccount();
   } catch (err) {
-    showStageError('SEÑAL PERDIDA', errorText(err));
+    modpacks = [];
+    showStageError(t('stage.lost.title'), errorText(err));
     return;
   }
   if (!modpacks.some((m) => m.id === selectedId)) selectedId = 'normal';
@@ -196,6 +299,7 @@ async function loadModpacks() {
   $('hero').hidden = false;
   $('launchBox').hidden = false;
   renderModpacks();
+  renderInfo();
 }
 
 function renderModpacks() {
@@ -213,7 +317,7 @@ function renderModpacks() {
         const name = document.createElement('strong');
         name.textContent = modpack.name;
         const meta = document.createElement('span');
-        meta.textContent = `${modpack.modCount} mods`;
+        meta.textContent = t('pack.mods', { n: modpack.modCount });
         tab.append(name, meta);
         return tab;
       }),
@@ -225,18 +329,18 @@ function renderModpacks() {
   const modpack = modpacks.find((m) => m.id === selectedId);
   if (!modpack) return;
   document.querySelector('.stage').dataset.pack = modpack.id;
-  $('packTag').textContent = PACK_TAGS[modpack.id] || 'MODPACK';
+  $('packTag').textContent = t(i18n.LANGUAGES.es[`pack.tag.${modpack.id}`] ? `pack.tag.${modpack.id}` : 'pack.tag.other');
   $('packTitle').textContent = modpack.name;
   $('packDesc').textContent = modpack.description;
 
   const chips = [
     `Minecraft ${modpack.mcVersion}`,
     `Forge${modpack.loaderVersion ? ` ${modpack.loaderVersion}` : ''}`,
-    `${modpack.modCount} mods`,
+    t('pack.mods', { n: modpack.modCount }),
   ];
   if (modpack.totalSize > 0) chips.push(formatSize(modpack.totalSize));
   const updated = formatDate(modpack.updatedAt);
-  if (updated) chips.push(`Actualizado el ${updated}`);
+  if (updated) chips.push(t('pack.updatedOn', { date: updated }));
   $('packChips').replaceChildren(
     ...chips.map((text) => {
       const li = document.createElement('li');
@@ -248,10 +352,10 @@ function renderModpacks() {
   const stateEl = $('packState');
   if (modpack.modCount === 0) {
     stateEl.dataset.status = '';
-    stateEl.textContent = 'ESTE MODPACK TODAVÍA NO TIENE MODS';
+    stateEl.textContent = t('pack.empty');
   } else {
     stateEl.dataset.status = modpack.status;
-    stateEl.textContent = STATUS_TEXT[modpack.status] || '';
+    stateEl.textContent = t(`pack.status.${modpack.status}`);
   }
   renderPlayButton();
 }
@@ -282,13 +386,13 @@ function renderPlayButton() {
   const button = $('playBtn');
   const modpack = modpacks.find((m) => m.id === selectedId);
   if (phase === 'running') {
-    button.textContent = 'CERRAR JUEGO';
+    button.textContent = t('play.close');
     button.disabled = false;
   } else if (phase === 'preparing') {
-    button.textContent = 'PREPARANDO';
+    button.textContent = t('play.preparing');
     button.disabled = true;
   } else {
-    button.textContent = modpack && modpack.status === 'ready' ? 'JUGAR' : 'INSTALAR Y JUGAR';
+    button.textContent = t(modpack && modpack.status === 'ready' ? 'play.play' : 'play.install');
     button.disabled = !modpack;
   }
 }
@@ -323,7 +427,7 @@ $('playBtn').addEventListener('click', async () => {
   logLines.length = 0;
   $('consoleLog').textContent = '';
   renderPlayButton();
-  setProgress('Preparando...', null);
+  setProgress(t('play.preparingLabel'), null);
 
   let result;
   try {
@@ -347,26 +451,84 @@ bridge.onPlayProgress(({ label, percent }) => {
 
 bridge.onGameStarted(() => {
   phase = 'running';
-  setProgress('Minecraft está abierto. ¡Buen viaje!', 100);
+  setProgress(t('play.running'), 100);
   renderPlayButton();
   loadModpacks();
 });
 
-bridge.onGameClosed(({ code }) => {
+bridge.onGameClosed(({ code, crash, modpackId }) => {
   phase = 'idle';
   $('progressBox').hidden = true;
   renderPlayButton();
-  if (code !== 0 && code !== null) {
-    $('consoleBox').open = true;
-    toast(`Minecraft se ha cerrado con un error (código ${code}). Mira la consola del juego.`, 'error');
-  }
+  if (crash) showCrash(code, crash, modpackId);
 });
 
 bridge.onGameLog(addLog);
 
+// ---------- Registros ----------
+
+// Guarda el .zip de registros. Devuelve el texto del error, o '' si ha ido
+// bien o se ha cancelado.
+async function saveLogs(modpackId) {
+  try {
+    const result = await bridge.exportLogs(modpackId);
+    if (result.ok) toast(t('logs.saved'));
+    else if (result.reason === 'none') return t('logs.none');
+    return '';
+  } catch (err) {
+    return errorText(err);
+  }
+}
+
+// ---------- Cierre por error ----------
+
+const crashDialog = $('crashDialog');
+let crashModpackId = null;
+
+function showCrash(code, crash, modpackId) {
+  crashModpackId = modpackId || selectedId;
+  $('crashCode').textContent = t('crash.code', { code: code === null ? '—' : code });
+  $('crashWhat').textContent = crash.description || t('crash.noReport');
+  $('crashException').textContent = crash.exception || '';
+  $('crashException').hidden = !crash.exception;
+  $('crashSuspects').replaceChildren(
+    ...crash.suspects.map((name) => {
+      const li = document.createElement('li');
+      li.textContent = name;
+      return li;
+    }),
+  );
+  $('crashSuspectsBox').hidden = crash.suspects.length === 0;
+  $('crashOom').hidden = !crash.outOfMemory;
+  $('crashError').hidden = true;
+  $('consoleBox').open = true;
+  if (!crashDialog.open) crashDialog.showModal();
+}
+
+$('crashClose').addEventListener('click', () => crashDialog.close());
+$('crashSave').addEventListener('click', async () => {
+  const error = await saveLogs(crashModpackId);
+  $('crashError').textContent = error;
+  $('crashError').hidden = !error;
+});
+
 // ---------- Ajustes ----------
 
 const dialog = $('settingsDialog');
+
+$('languageSelect').replaceChildren(
+  ...Object.entries(i18n.NAMES).map(([code, name]) => {
+    const option = document.createElement('option');
+    option.value = code;
+    option.textContent = name;
+    return option;
+  }),
+);
+
+function showSettingsError(message) {
+  $('settingsError').textContent = message;
+  $('settingsError').hidden = !message;
+}
 
 function openSettings() {
   const s = state.settings;
@@ -375,9 +537,10 @@ function openSettings() {
   $('memoryOut').textContent = `${s.memoryGb} GB`;
   $('joinServerCheck').checked = s.joinServer;
   $('javaPath').value = s.javaPath;
+  $('languageSelect').value = i18n.getLanguage();
   $('backendUrl').value = s.backendConfigured ? s.backendUrl : '';
   $('packActions').hidden = document.body.dataset.view !== 'main' || modpacks.length === 0;
-  $('settingsError').hidden = true;
+  showSettingsError('');
   dialog.showModal();
 }
 
@@ -393,14 +556,15 @@ $('pickJavaBtn').addEventListener('click', async () => {
 $('openFolderBtn').addEventListener('click', () => bridge.openFolder(selectedId));
 $('repairBtn').addEventListener('click', async () => {
   if (phase !== 'idle') {
-    toast('Cierra antes el juego.', 'error');
+    showSettingsError(t('play.closeFirst'));
     return;
   }
   await bridge.repair(selectedId);
   dialog.close();
-  toast('Hecho. La próxima vez que pulses Jugar se volverán a comprobar y descargar los mods.');
+  toast(t('settings.repairDone'));
   loadModpacks();
 });
+$('logsBtn').addEventListener('click', async () => showSettingsError(await saveLogs(selectedId)));
 
 $('settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -410,14 +574,18 @@ $('settingsForm').addEventListener('submit', async (e) => {
       memoryGb: Number($('memoryRange').value),
       joinServer: $('joinServerCheck').checked,
       javaPath: $('javaPath').value,
+      language: $('languageSelect').value,
       backendUrl: $('backendUrl').value,
     });
   } catch (err) {
-    $('settingsError').textContent = errorText(err);
-    $('settingsError').hidden = false;
+    showSettingsError(errorText(err));
     return;
   }
   dialog.close();
+  if (state.settings.language !== i18n.getLanguage()) {
+    i18n.setLanguage(state.settings.language);
+    applyLanguage();
+  }
   if (state.settings.backendUrl !== previousUrl && document.body.dataset.view === 'main') loadModpacks();
 });
 
@@ -425,10 +593,9 @@ $('settingsForm').addEventListener('submit', async (e) => {
 
 const modsDialog = $('modsDialog');
 
-// Los avisos normales quedan tapados por la ventana: los errores van dentro.
 function showModsError(message) {
   $('modsError').textContent = message;
-  $('modsError').hidden = false;
+  $('modsError').hidden = !message;
 }
 
 function modRow(filename, size) {
@@ -450,7 +617,7 @@ async function refreshMods() {
     showModsError(errorText(err));
     return;
   }
-  $('modsError').hidden = true;
+  showModsError('');
 
   $('optionalList').replaceChildren(
     ...view.optional.map((mod) => {
@@ -476,18 +643,18 @@ async function refreshMods() {
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'remove-btn';
-      remove.textContent = 'Quitar';
-      remove.setAttribute('aria-label', `Quitar ${mod.filename}`);
+      remove.textContent = t('mods.remove');
+      remove.setAttribute('aria-label', t('mods.removeLabel', { name: mod.filename }));
       remove.addEventListener('click', async () => {
         remove.disabled = true;
+        let error = '';
         try {
           await bridge.removeOwnMod(selectedId, mod.filename);
         } catch (err) {
-          await refreshMods();
-          showModsError(errorText(err));
-          return;
+          error = errorText(err);
         }
-        refreshMods();
+        await refreshMods();
+        if (error) showModsError(error);
       });
       li.append(name, sizeEl, remove);
       return li;
@@ -498,7 +665,7 @@ async function refreshMods() {
 
 $('modsBtn').addEventListener('click', () => {
   if (phase !== 'idle') {
-    toast('Cierra antes el juego para cambiar los mods.', 'error');
+    toast(t('mods.closeFirst'), 'error');
     return;
   }
   $('optionalList').replaceChildren();
@@ -512,9 +679,7 @@ $('addModsBtn').addEventListener('click', async () => {
   let message = '';
   try {
     const result = await bridge.addOwnMods(selectedId);
-    if (result.skipped.length > 0) {
-      message = `No se han añadido (ya son del modpack o el nombre no vale): ${result.skipped.join(', ')}`;
-    }
+    if (result.skipped.length > 0) message = t('mods.skipped', { names: result.skipped.join(', ') });
   } catch (err) {
     message = errorText(err);
   }
@@ -524,12 +689,17 @@ $('addModsBtn').addEventListener('click', async () => {
 
 // ---------- Actualización del launcher ----------
 
+let updateVersion = null;
+function renderUpdate() {
+  if (updateVersion) $('updateText').textContent = t('update.text', { version: updateVersion });
+  $('updateBanner').hidden = !updateVersion;
+}
 bridge.onUpdateReady(({ version }) => {
-  $('updateText').textContent = `Hay una versión nueva del launcher (v${version}) lista para instalar.`;
-  $('updateBanner').hidden = false;
+  updateVersion = version;
+  renderUpdate();
 });
 $('updateBtn').addEventListener('click', () => {
-  if (phase !== 'idle') toast('Cierra antes el juego.', 'error');
+  if (phase !== 'idle') toast(t('play.closeFirst'), 'error');
   else bridge.installUpdate();
 });
 
@@ -537,6 +707,10 @@ $('updateBtn').addEventListener('click', () => {
 
 (async () => {
   state = await bridge.getState();
+  i18n.setLanguage(state.settings.language);
+  applyStaticTexts();
+  renderServerStatus();
+  renderPlayButton();
   selectedId = state.selectedModpack;
   if (state.account) await enterMain();
   else setView('login');

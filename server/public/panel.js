@@ -17,7 +17,7 @@ try {
 } catch {
   // Sin sessionStorage (modo privado estricto): habrá que entrar en cada visita.
 }
-let state = { modpacks: [], admins: [] };
+let state = { modpacks: [], admins: [], news: null, event: null };
 const filters = { normal: '', admin: '' };
 
 // ---------- Utilidades ----------
@@ -250,7 +250,7 @@ async function uploadFiles(packId, section, fileList) {
         if (result.replaced) replaced++;
         else added++;
       } else failed.push(`${file.name}: ${result.error}`);
-      state = { modpacks: data.modpacks, admins: data.admins };
+      state = data;
     } catch (err) {
       failed.push(`${file.name}: ${err.message}`);
       if (!token) break;
@@ -444,11 +444,60 @@ document.getElementById('adminForm').addEventListener('submit', async (e) => {
   if (ok) input.value = '';
 });
 
+// ---------- Novedades y evento ----------
+
+// Fecha ISO (UTC) -> valor de un <input type="datetime-local"> en hora local.
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderAnnouncements() {
+  const active = document.activeElement;
+  if (!document.getElementById('newsForm').contains(active)) {
+    document.getElementById('newsText').value = (state.news && state.news.text) || '';
+  }
+  document.getElementById('newsDate').textContent =
+    state.news && state.news.updatedAt ? `Publicado: ${formatDate(state.news.updatedAt)}` : 'Sin novedades publicadas.';
+  if (!document.getElementById('eventForm').contains(active)) {
+    document.getElementById('eventName').value = state.event ? state.event.name : '';
+    document.getElementById('eventStart').value = state.event ? toLocalInput(state.event.start) : '';
+    document.getElementById('eventHours').value = state.event ? state.event.hours : 3;
+  }
+  document.getElementById('eventClear').hidden = !state.event;
+}
+
+document.getElementById('newsForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = document.getElementById('newsText').value;
+  run(() => api('/api/panel/news', { method: 'PUT', body: { text } }), text.trim() ? 'Novedades publicadas.' : 'Novedades quitadas.');
+});
+
+document.getElementById('eventForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = document.getElementById('eventName').value.trim();
+  const startValue = document.getElementById('eventStart').value;
+  if (!name || !startValue) {
+    toast('Pon el nombre del evento y cuándo empieza.', 'error');
+    return;
+  }
+  // El campo da la hora local de quien lo rellena; se guarda en UTC.
+  const start = new Date(startValue).toISOString();
+  const hours = Number(document.getElementById('eventHours').value) || 3;
+  run(() => api('/api/panel/event', { method: 'PUT', body: { event: { name, start, hours } } }), 'Evento guardado.');
+});
+
+document.getElementById('eventClear').addEventListener('click', () => {
+  run(() => api('/api/panel/event', { method: 'PUT', body: { event: null } }), 'Evento quitado.');
+});
+
 // ---------- Arranque ----------
 
 function render() {
   for (const section of document.querySelectorAll('.pack')) renderPack(section);
   renderAdmins();
+  renderAnnouncements();
 }
 
 for (const section of document.querySelectorAll('.pack')) buildPack(section);

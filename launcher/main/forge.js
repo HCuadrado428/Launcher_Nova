@@ -7,6 +7,7 @@ const {
   getVersionList,
 } = require('@xmcl/installer');
 const { Version } = require('@xmcl/core');
+const { t } = require('../i18n');
 
 // Instalación de Minecraft + Forge en la carpeta compartida game/ (adaptado
 // del Ember Launcher). Se hace una sola vez por versión: los dos modpacks
@@ -24,10 +25,10 @@ async function resolveRecommendedForge(mcVersion) {
   const res = await fetch('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json', {
     signal: AbortSignal.timeout(20_000),
   });
-  if (!res.ok) throw new Error(`No se pudo consultar las versiones de Forge (estado ${res.status}).`);
+  if (!res.ok) throw new Error(t('err.forgeVersions', { status: res.status }));
   const promos = (await res.json()).promos || {};
   const pick = promos[`${mcVersion}-recommended`] || promos[`${mcVersion}-latest`];
-  if (!pick) throw new Error(`No hay ninguna versión de Forge para Minecraft ${mcVersion}.`);
+  if (!pick) throw new Error(t('err.noForge', { mc: mcVersion }));
   return pick;
 }
 
@@ -59,22 +60,22 @@ async function ensureForge({ root, mcVersion, forgeVersion, javaPath, onProgress
   fs.mkdirSync(root, { recursive: true });
 
   // El instalador de Forge necesita el .jar vanilla ya en disco.
-  onProgress({ label: 'Descargando Minecraft', percent: 0 });
+  onProgress({ label: t('prog.minecraft'), percent: 0 });
   const versionList = await getVersionList();
   const versionMeta = versionList.versions.find((v) => v.id === mcVersion);
-  if (!versionMeta) throw new Error(`Minecraft ${mcVersion} no aparece en la lista de versiones de Mojang.`);
-  await runTask(installVersionTask(versionMeta, root, CONCURRENCY), 'Descargando Minecraft', onProgress);
+  if (!versionMeta) throw new Error(t('err.mcMissing', { mc: mcVersion }));
+  await runTask(installVersionTask(versionMeta, root, CONCURRENCY), t('prog.minecraft'), onProgress);
 
-  onProgress({ label: 'Instalando Forge', percent: 0 });
+  onProgress({ label: t('prog.forge'), percent: 0 });
   let versionId;
   try {
     versionId = await runTask(
       installForgeTask({ mcversion: mcVersion, version: wanted }, root, { mavenHost: FORGE_MAVEN_HTTPS, java: javaPath }),
-      'Instalando Forge',
+      t('prog.forge'),
       onProgress,
     );
   } catch (err) {
-    throw new Error(`No se pudo instalar Forge ${wanted} para Minecraft ${mcVersion}: ${err.message || err}`, {
+    throw new Error(t('err.forgeInstall', { forge: wanted, mc: mcVersion, detail: err.message || err }), {
       cause: err,
     });
   }
@@ -85,7 +86,7 @@ async function ensureForge({ root, mcVersion, forgeVersion, javaPath, onProgress
   let lastError = null;
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
-      await runTask(installDependenciesTask(resolved, CONCURRENCY), 'Descargando librerías', onProgress);
+      await runTask(installDependenciesTask(resolved, CONCURRENCY), t('prog.libs'), onProgress);
       lastError = null;
       break;
     } catch (err) {

@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { t } = require('../i18n');
 
 // Sincronización de los mods de un modpack con el manifiesto del backend.
 // No depende de Electron: recibe las rutas y la función de descarga, así que
@@ -98,7 +99,7 @@ async function syncMods({ instanceDir, manifest, download, disabled = [], onProg
 
   for (const mod of manifest.mods) {
     if (!safeModFilename(mod.filename) || !/^[a-f0-9]{40}$/.test(mod.sha1)) {
-      throw new Error(`El modpack contiene un archivo con un nombre no válido: ${String(mod.filename).slice(0, 80)}`);
+      throw new Error(t('err.badFile', { name: String(mod.filename).slice(0, 80) }));
     }
   }
 
@@ -134,7 +135,7 @@ async function syncMods({ instanceDir, manifest, download, disabled = [], onProg
     try {
       await download(mod, tmp);
       const actual = await sha1File(tmp);
-      if (actual !== mod.sha1) throw new Error(`${mod.filename} se descargó dañado. Vuelve a intentarlo.`);
+      if (actual !== mod.sha1) throw new Error(t('err.damaged', { name: mod.filename }));
       fs.renameSync(tmp, dest);
     } finally {
       fs.rmSync(tmp, { force: true });

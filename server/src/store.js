@@ -56,6 +56,8 @@ function createStore(dataDir) {
   data.admins = Array.isArray(data.admins) ? data.admins : [];
   data.modpacks = data.modpacks || {};
   for (const id of MODPACK_IDS) data.modpacks[id] = { ...emptyModpack(id), ...data.modpacks[id], id };
+  data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
+  data.event = data.event && data.event.name && data.event.start ? data.event : null;
 
   function save() {
     const tmp = `${dbPath}.${process.pid}.tmp`;
@@ -207,6 +209,19 @@ function createStore(dataDir) {
       if (data.admins.length === before) return false;
       save();
       return true;
+    },
+
+    // Novedades y próximo evento: lo que ve todo el mundo al abrir el launcher.
+    getAnnouncements: () => ({ news: data.news, event: data.event }),
+
+    setNews(text) {
+      data.news = { text, updatedAt: text ? new Date().toISOString() : null };
+      save();
+    },
+
+    setEvent(event) {
+      data.event = event;
+      save();
     },
 
     isAdminUuid: (uuid) => Boolean(uuid) && data.admins.some((a) => a.uuid === uuid),

@@ -361,3 +361,31 @@ test('al arrancar se rellena el modId de los mods que no lo tenían', async () =
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('novedades y evento: los escribe el dueño y los ve cualquier jugador', async () => {
+  const { owner, player, offline } = await login();
+  assert.equal((await api('/api/panel/news', { method: 'PUT', token: player, body: { text: 'hola' } })).status, 401);
+  assert.equal((await api('/api/panel/news', { method: 'PUT', token: owner, body: { text: 'x'.repeat(2000) } })).status, 400);
+  assert.equal((await api('/api/panel/event', { method: 'PUT', token: owner, body: { event: { name: 'Raid', start: 'mañana' } } })).status, 400);
+
+  await api('/api/panel/news', { method: 'PUT', token: owner, body: { text: '  Mods actualizados.\nEsta noche, evento.  ' } });
+  const saved = await api('/api/panel/event', {
+    method: 'PUT',
+    token: owner,
+    body: { event: { name: 'Be The Boss', start: '2027-01-10T22:00:00+01:00', hours: 4 } },
+  });
+  assert.equal(saved.status, 200);
+
+  for (const token of [player, offline]) {
+    const seen = (await api('/api/modpacks', { token })).data;
+    assert.equal(seen.news.text, 'Mods actualizados.\nEsta noche, evento.');
+    assert.ok(seen.news.updatedAt);
+    assert.deepEqual(seen.event, { name: 'Be The Boss', start: '2027-01-10T21:00:00.000Z', hours: 4 });
+  }
+
+  await api('/api/panel/event', { method: 'PUT', token: owner, body: { event: null } });
+  await api('/api/panel/news', { method: 'PUT', token: owner, body: { text: '' } });
+  const cleared = (await api('/api/modpacks', { token: player })).data;
+  assert.equal(cleared.event, null);
+  assert.deepEqual(cleared.news, { text: '', updatedAt: null });
+});

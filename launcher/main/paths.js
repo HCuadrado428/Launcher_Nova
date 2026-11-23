@@ -1,5 +1,6 @@
 const { app } = require('electron');
 const path = require('node:path');
+const { t } = require('../i18n');
 
 // Todo lo del launcher vive en %APPDATA%/.novalauncher:
 //   game/        versiones, librerías y assets de Minecraft y Forge (se
@@ -11,7 +12,7 @@ const GAME_ROOT = path.join(DATA_ROOT, 'game');
 const RUNTIME_DIR = path.join(DATA_ROOT, 'runtime');
 
 function instanceDir(modpackId) {
-  if (!/^[a-z0-9-]+$/.test(modpackId)) throw new Error('Modpack no válido.');
+  if (!/^[a-z0-9-]+$/.test(modpackId)) throw new Error(t('err.badPack'));
   return path.join(DATA_ROOT, 'instances', modpackId);
 }
 

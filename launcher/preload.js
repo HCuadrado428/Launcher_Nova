@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('nova', {
   addOwnMods: (id) => ipcRenderer.invoke('add-own-mods', id),
   removeOwnMod: (modpackId, filename) => ipcRenderer.invoke('remove-own-mod', { modpackId, filename }),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  exportLogs: (id) => ipcRenderer.invoke('export-logs', id),
 
   onPlayProgress: on('play-progress'),
   onGameLog: on('game-log'),

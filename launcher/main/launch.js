@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { launch, generateArguments } = require('@xmcl/core');
+const { t } = require('../i18n');
 
 // Arranque de Minecraft con @xmcl/core, la misma familia de librerías que
 // instala Forge. Lee el perfil de versión de Forge completo, incluidos sus
@@ -80,12 +81,12 @@ async function launchGame(params, { onLog, onClose }) {
     child = await launch({ ...launchOptions(params), extraExecOption: { detached: false } });
   } catch (err) {
     const reasons = {
-      MissingLibraries: 'Faltan librerías del juego.',
-      CorruptedVersionJar: 'El archivo del juego está dañado.',
-      MissingVersionJar: 'Falta el archivo del juego.',
+      MissingLibraries: 'err.missingLibs',
+      CorruptedVersionJar: 'err.corruptJar',
+      MissingVersionJar: 'err.missingJar',
     };
     const reason = reasons[err && err.error];
-    if (reason) throw new Error(`${reason} Pulsa «Reparar mods» en Ajustes y vuelve a intentarlo.`, { cause: err });
+    if (reason) throw new Error(t('err.repairHint', { reason: t(reason) }), { cause: err });
     throw err;
   }
   for (const stream of [child.stdout, child.stderr]) {
@@ -101,7 +102,7 @@ async function launchGame(params, { onLog, onClose }) {
       if (pending) onLog(pending);
     });
   }
-  child.on('error', (err) => onLog(`[ERROR] No se pudo iniciar Java: ${err.message}`));
+  child.on('error', (err) => onLog(`[ERROR] ${t('err.noStart', { detail: err.message })}`));
   child.on('close', (code) => onClose(code));
   return child;
 }

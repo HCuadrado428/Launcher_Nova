@@ -11,6 +11,7 @@ const { readModId } = require('./jarinfo');
 
 const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
+const MAX_NEWS_LENGTH = 1500;
 const SHA1_RE = /^[a-f0-9]{40}$/;
 const NICK_RE = /^[A-Za-z0-9_]{1,16}$/;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,39}$/;
@@ -191,6 +192,7 @@ function createApp(options) {
     res.json({
       player: playerInfo(req.session),
       modpacks: ids.map((id) => store.publicModpack(store.getModpack(id))),
+      ...store.getAnnouncements(),
     });
   });
 
@@ -232,6 +234,7 @@ function createApp(options) {
     return {
       modpacks: MODPACK_IDS.map((id) => store.publicModpack(store.getModpack(id), { withMods: true })),
       admins: store.listAdmins(),
+      ...store.getAnnouncements(),
     };
   }
 
@@ -341,6 +344,32 @@ function createApp(options) {
       fields.loaderVersion = value;
     }
     store.updateModpack(modpack.id, fields);
+    res.json(panelState());
+  });
+
+  app.put('/api/panel/news', requireOwner, (req, res) => {
+    const text = req.body && req.body.text;
+    if (typeof text !== 'string' || text.length > MAX_NEWS_LENGTH) {
+      throw new HttpError(400, `Las novedades no pueden pasar de ${MAX_NEWS_LENGTH} caracteres.`);
+    }
+    store.setNews(text.trim());
+    res.json(panelState());
+  });
+
+  // Próximo evento (cuenta atrás en el launcher). Con { event: null } se quita.
+  app.put('/api/panel/event', requireOwner, (req, res) => {
+    const event = req.body && req.body.event;
+    if (event === null) {
+      store.setEvent(null);
+      return res.json(panelState());
+    }
+    const name = String((event && event.name) || '').trim();
+    const start = new Date(event && event.start);
+    const hours = Number(event && event.hours) || 3;
+    if (!name || name.length > 60) throw new HttpError(400, 'El evento necesita un nombre de hasta 60 caracteres.');
+    if (Number.isNaN(start.getTime())) throw new HttpError(400, 'La fecha del evento no es válida.');
+    if (hours < 1 || hours > 72) throw new HttpError(400, 'La duración debe estar entre 1 y 72 horas.');
+    store.setEvent({ name, start: start.toISOString(), hours });
     res.json(panelState());
   });
 

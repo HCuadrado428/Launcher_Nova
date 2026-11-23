@@ -39,6 +39,33 @@
         <section class="pack" data-pack="normal" aria-labelledby="pack-normal-title"></section>
         <section class="pack" data-pack="admin" aria-labelledby="pack-admin-title"></section>
 
+        <section class="admins news" aria-labelledby="news-title">
+          <h2 id="news-title">NOVEDADES Y EVENTO</h2>
+          <p class="hint">Lo ven todos los jugadores al abrir el launcher.</p>
+          <div class="news-grid">
+            <form id="newsForm">
+              <label for="newsText">Novedades</label>
+              <textarea id="newsText" rows="5" maxlength="1500" placeholder="Mods actualizados, avisos, lo que quieras contar..."></textarea>
+              <div class="form-actions">
+                <span class="hint" id="newsDate"></span>
+                <button class="btn btn-purple" type="submit">Publicar</button>
+              </div>
+            </form>
+            <form id="eventForm">
+              <label for="eventName">Próximo evento (cuenta atrás)</label>
+              <input id="eventName" maxlength="60" placeholder="Nombre del evento" />
+              <div class="event-row">
+                <label>Empieza (tu hora) <input id="eventStart" type="datetime-local" /></label>
+                <label>Dura (horas) <input id="eventHours" type="number" min="1" max="72" value="3" /></label>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-ghost" type="button" id="eventClear">Quitar evento</button>
+                <button class="btn btn-purple" type="submit">Guardar evento</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
         <section class="admins" aria-labelledby="admins-title">
           <h2 id="admins-title">CUENTAS ADMIN</h2>
           <p class="hint">

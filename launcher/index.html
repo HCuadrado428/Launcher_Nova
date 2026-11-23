@@ -9,6 +9,8 @@
     <title>Nova Launcher</title>
     <link rel="stylesheet" href="style.css" />
   </head>
+  <!-- Los textos se rellenan desde i18n.js según el idioma: data-i18n pone el
+       texto y data-i18n-attr un atributo ("placeholder:clave"). -->
   <body data-view="boot">
     <div class="grain" aria-hidden="true"></div>
 
@@ -16,19 +18,18 @@
     <main class="login" id="loginView">
       <img class="login-logo" src="assets/logo.webp" alt="" width="132" height="132" />
       <h1 class="glitch">NOVA 2</h1>
-      <p class="login-signal" id="loginSignal">SEÑAL PERDIDA... IDENTIFÍCATE</p>
+      <p class="login-signal" data-i18n="login.signal"></p>
 
-      <button class="btn btn-primary btn-big" id="msLoginBtn" type="button">ENTRAR CON MICROSOFT</button>
+      <button class="btn btn-primary btn-big" id="msLoginBtn" type="button" data-i18n="login.microsoft"></button>
 
-      <div class="divider"><span>o sin cuenta premium</span></div>
+      <div class="divider"><span data-i18n="login.orOffline"></span></div>
       <form class="offline-form" id="offlineForm" autocomplete="off">
-        <label class="sr-only" for="offlineNick">Nick</label>
-        <input id="offlineNick" maxlength="16" placeholder="Tu nick" spellcheck="false" />
-        <button class="btn" type="submit" id="offlineLoginBtn">Entrar</button>
+        <input id="offlineNick" maxlength="16" spellcheck="false" data-i18n-attr="placeholder:login.nick|aria-label:login.nick" />
+        <button class="btn" type="submit" id="offlineLoginBtn" data-i18n="login.enter"></button>
       </form>
       <p class="login-error" id="loginError" role="alert" hidden></p>
 
-      <button class="link-btn login-settings" type="button" data-open-settings>Ajustes</button>
+      <button class="link-btn login-settings" type="button" data-open-settings data-i18n="common.settings"></button>
     </main>
 
     <!-- ---------- Principal ---------- -->
@@ -52,15 +53,15 @@
         </div>
 
         <div class="server" id="serverBox" data-state="unknown">
-          <span class="server-label">SERVIDOR</span>
-          <span class="server-state"><i class="dot" aria-hidden="true"></i><span id="serverText">Comprobando...</span></span>
-          <button class="link-btn server-ip" id="copyIpBtn" type="button" title="Copiar la IP"></button>
+          <span class="server-label" data-i18n="server.label"></span>
+          <span class="server-state"><i class="dot" aria-hidden="true"></i><span id="serverText"></span></span>
+          <button class="link-btn server-ip" id="copyIpBtn" type="button" data-i18n-attr="title:server.copyIp"></button>
         </div>
 
         <nav class="side-nav">
-          <button class="side-btn" type="button" id="webBtn">Web del servidor</button>
-          <button class="side-btn" type="button" data-open-settings>Ajustes</button>
-          <button class="side-btn" type="button" id="logoutBtn">Cerrar sesión</button>
+          <button class="side-btn" type="button" id="webBtn" data-i18n="side.web"></button>
+          <button class="side-btn" type="button" data-open-settings data-i18n="common.settings"></button>
+          <button class="side-btn" type="button" id="logoutBtn" data-i18n="side.logout"></button>
         </nav>
         <p class="version" id="versionLabel"></p>
       </aside>
@@ -68,28 +69,44 @@
       <section class="stage">
         <div class="update-banner" id="updateBanner" hidden>
           <span id="updateText"></span>
-          <button class="btn" type="button" id="updateBtn">Reiniciar y actualizar</button>
+          <button class="btn" type="button" id="updateBtn" data-i18n="update.button"></button>
         </div>
 
-        <div class="tabs" id="packTabs" role="tablist" aria-label="Modpacks"></div>
+        <div class="tabs" id="packTabs" role="tablist"></div>
 
-        <div class="hero" id="hero">
-          <span class="hero-tag" id="packTag"></span>
-          <h1 id="packTitle"></h1>
-          <p class="hero-desc" id="packDesc"></p>
-          <ul class="chips" id="packChips"></ul>
-          <p class="hero-state" id="packState"></p>
-        </div>
+        <div class="stage-body">
+          <div class="hero" id="hero">
+            <span class="hero-tag" id="packTag"></span>
+            <h1 id="packTitle"></h1>
+            <p class="hero-desc" id="packDesc"></p>
+            <ul class="chips" id="packChips"></ul>
+            <p class="hero-state" id="packState"></p>
+          </div>
 
-        <div class="stage-empty" id="stageEmpty" hidden>
-          <p class="stage-empty-title" id="emptyTitle"></p>
-          <p id="emptyText"></p>
-          <button class="btn" type="button" id="retryBtn">Reintentar</button>
+          <div class="stage-empty" id="stageEmpty" hidden>
+            <p class="stage-empty-title" id="emptyTitle"></p>
+            <p id="emptyText"></p>
+            <button class="btn" type="button" id="retryBtn" data-i18n="common.retry"></button>
+          </div>
+
+          <aside class="info" id="infoBox" hidden>
+            <div class="info-card info-event" id="eventCard" hidden>
+              <span class="info-label" data-i18n="event.next"></span>
+              <strong id="eventName"></strong>
+              <span class="event-countdown" id="eventCountdown"></span>
+              <span class="event-local" id="eventLocal"></span>
+            </div>
+            <div class="info-card" id="newsCard" hidden>
+              <span class="info-label" data-i18n="news.title"></span>
+              <p id="newsText"></p>
+              <span class="news-date" id="newsDate"></span>
+            </div>
+          </aside>
         </div>
 
         <div class="launch" id="launchBox">
-          <button class="btn btn-primary btn-play" id="playBtn" type="button">JUGAR</button>
-          <button class="btn btn-mods" id="modsBtn" type="button">Mods</button>
+          <button class="btn btn-primary btn-play" id="playBtn" type="button"></button>
+          <button class="btn btn-mods" id="modsBtn" type="button" data-i18n="mods.button"></button>
           <div class="progress" id="progressBox" hidden>
             <p class="progress-label" id="progressLabel"></p>
             <div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
@@ -99,7 +116,7 @@
         </div>
 
         <details class="console" id="consoleBox">
-          <summary>Consola del juego</summary>
+          <summary data-i18n="console.title"></summary>
           <pre id="consoleLog"></pre>
         </details>
       </section>
@@ -108,80 +125,112 @@
     <!-- ---------- Ajustes ---------- -->
     <dialog class="settings" id="settingsDialog" aria-labelledby="settingsTitle">
       <form method="dialog" id="settingsForm">
-        <h2 id="settingsTitle">AJUSTES</h2>
+        <h2 id="settingsTitle" data-i18n="settings.title"></h2>
 
         <div class="field">
-          <label for="memoryRange">Memoria para Minecraft: <output id="memoryOut"></output></label>
+          <label for="memoryRange"><span data-i18n="settings.memory"></span> <output id="memoryOut"></output></label>
           <input id="memoryRange" type="range" min="2" step="1" />
-          <p class="hint">Para este modpack van bien entre 6 y 8 GB si tu equipo los tiene.</p>
+          <p class="hint" data-i18n="settings.memoryHint"></p>
         </div>
 
         <label class="check">
           <input type="checkbox" id="joinServerCheck" />
-          <span>Saltarse el menú y entrar al servidor al abrir el juego (solo modpack normal)</span>
+          <span data-i18n="settings.join"></span>
         </label>
 
-        <div class="field">
-          <label for="javaPath">Java</label>
-          <div class="row">
-            <input id="javaPath" placeholder="Automático (lo descarga el launcher)" spellcheck="false" />
-            <button class="btn" type="button" id="pickJavaBtn">Elegir</button>
+        <div class="field-pair">
+          <div class="field">
+            <label for="javaPath" data-i18n="settings.java"></label>
+            <div class="row">
+              <input id="javaPath" spellcheck="false" data-i18n-attr="placeholder:settings.javaAuto" />
+              <button class="btn" type="button" id="pickJavaBtn" data-i18n="settings.pick"></button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="languageSelect" data-i18n="settings.language"></label>
+            <select id="languageSelect"></select>
           </div>
         </div>
 
         <div class="field" id="packActions">
-          <span class="field-title">Modpack seleccionado</span>
+          <span class="field-title" data-i18n="settings.pack"></span>
           <div class="row">
-            <button class="btn" type="button" id="openFolderBtn">Abrir carpeta</button>
-            <button class="btn" type="button" id="repairBtn">Reparar mods</button>
+            <button class="btn" type="button" id="openFolderBtn" data-i18n="settings.openFolder"></button>
+            <button class="btn" type="button" id="repairBtn" data-i18n="settings.repair"></button>
+            <button class="btn" type="button" id="logsBtn" data-i18n="settings.logs"></button>
           </div>
         </div>
 
         <details class="advanced">
-          <summary>Avanzado</summary>
+          <summary data-i18n="settings.advanced"></summary>
           <div class="field">
-            <label for="backendUrl">Dirección del servidor del launcher</label>
+            <label for="backendUrl" data-i18n="settings.backend"></label>
             <input id="backendUrl" placeholder="https://..." spellcheck="false" />
           </div>
         </details>
 
         <p class="settings-error" id="settingsError" role="alert" hidden></p>
         <div class="dialog-actions">
-          <button class="btn" type="button" id="settingsCancel">Cancelar</button>
-          <button class="btn btn-primary" type="submit">Guardar</button>
+          <button class="btn" type="button" id="settingsCancel" data-i18n="common.cancel"></button>
+          <button class="btn btn-primary" type="submit" data-i18n="common.save"></button>
         </div>
       </form>
     </dialog>
 
     <!-- ---------- Mods del jugador ---------- -->
     <dialog class="settings mods-dialog" id="modsDialog" aria-labelledby="modsTitle">
-      <h2 id="modsTitle">MODS</h2>
+      <h2 id="modsTitle" data-i18n="mods.title"></h2>
 
       <section>
-        <h3>Opcionales del modpack</h3>
-        <p class="hint">Desmarca los que no quieras. El cambio se aplica la próxima vez que pulses Jugar.</p>
+        <h3 data-i18n="mods.optional"></h3>
+        <p class="hint" data-i18n="mods.optionalHint"></p>
         <ul class="mods-list" id="optionalList"></ul>
-        <p class="hint" id="optionalEmpty" hidden>Este modpack no tiene mods opcionales.</p>
+        <p class="hint" id="optionalEmpty" hidden data-i18n="mods.optionalEmpty"></p>
       </section>
 
       <section>
-        <h3>Tus mods</h3>
-        <p class="hint">Los que añadas tú. El modpack no los toca al actualizarse.</p>
+        <h3 data-i18n="mods.own"></h3>
+        <p class="hint" data-i18n="mods.ownHint"></p>
         <ul class="mods-list" id="ownList"></ul>
-        <p class="hint" id="ownEmpty" hidden>No has añadido ninguno.</p>
+        <p class="hint" id="ownEmpty" hidden data-i18n="mods.ownEmpty"></p>
         <div class="row">
-          <button class="btn" type="button" id="addModsBtn">Añadir mods...</button>
-          <button class="btn" type="button" id="modsFolderBtn">Abrir carpeta</button>
+          <button class="btn" type="button" id="addModsBtn" data-i18n="mods.add"></button>
+          <button class="btn" type="button" id="modsFolderBtn" data-i18n="settings.openFolder"></button>
         </div>
       </section>
 
       <p class="settings-error" id="modsError" role="alert" hidden></p>
       <div class="dialog-actions">
-        <button class="btn btn-primary" type="button" id="modsClose">Hecho</button>
+        <button class="btn btn-primary" type="button" id="modsClose" data-i18n="common.done"></button>
       </div>
     </dialog>
 
-    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <!-- ---------- Cierre por error ---------- -->
+    <dialog class="settings crash-dialog" id="crashDialog" aria-labelledby="crashTitle">
+      <h2 id="crashTitle" data-i18n="crash.title"></h2>
+      <p class="hint" id="crashCode"></p>
+
+      <div class="crash-block" id="crashWhatBox">
+        <h3 data-i18n="crash.what"></h3>
+        <p id="crashWhat"></p>
+        <p class="crash-exception" id="crashException"></p>
+      </div>
+      <div class="crash-block" id="crashSuspectsBox" hidden>
+        <h3 data-i18n="crash.suspects"></h3>
+        <ul id="crashSuspects"></ul>
+      </div>
+      <p id="crashOom" hidden data-i18n="crash.oom"></p>
+      <p class="hint" data-i18n="crash.help"></p>
+
+      <p class="settings-error" id="crashError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="crashClose" data-i18n="common.close"></button>
+        <button class="btn btn-primary" type="button" id="crashSave" data-i18n="crash.save"></button>
+      </div>
+    </dialog>
+
+    <div class="toasts" id="toasts" popover="manual" role="status" aria-live="polite"></div>
+    <script src="i18n.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

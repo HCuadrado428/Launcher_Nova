@@ -13,6 +13,11 @@ const { syncMods, loadMeta, saveMeta, safeModFilename, modKey, META_FILE } = req
 const { ensureForge } = require('./main/forge');
 const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
+const { analyzeCrash } = require('./main/crash');
+const { writeLogsZip, collectLogFiles } = require('./main/logs');
+const i18n = require('./i18n');
+
+const { t } = i18n;
 
 const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 // El token de Minecraft dura 24 h; pasado este tiempo se renueva antes de jugar.
@@ -21,6 +26,11 @@ const MS_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 let mainWindow = null;
 let gameProcess = null;
 let busy = false; // hay una preparación/lanzamiento en marcha
+let stoppedByUser = false; // el jugador ha pulsado «Cerrar juego»
+let gameStartedAt = 0;
+// Salida del juego de la sesión actual, para incluirla al guardar registros.
+const MAX_GAME_LOG_LINES = 4000;
+let gameLog = [];
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -39,6 +49,7 @@ function settings() {
     maxMemoryGb: maxGb,
     javaPath: cfg.javaPath || '',
     joinServer: cfg.joinServer === true,
+    language: i18n.getLanguage(),
     backendUrl: backendUrl(),
     backendConfigured: !backendUrl().includes('CAMBIA-ESTO'),
   };
@@ -69,13 +80,13 @@ async function microsoftTokens(xbox) {
 async function refreshMicrosoft(account, { force = false } = {}) {
   if (account.type !== 'microsoft') return account;
   if (!force && Date.now() - (account.msTokenAt || 0) < MS_TOKEN_MAX_AGE_MS) return account;
-  if (!account.msRefreshToken) throw new Error('La sesión de Microsoft ha caducado. Cierra sesión y vuelve a entrar.');
+  if (!account.msRefreshToken) throw new Error(t('err.msExpired'));
   let tokens;
   try {
     tokens = await microsoftTokens(await new Auth('select_account').refresh(account.msRefreshToken));
   } catch (err) {
     console.warn('[AVISO] No se pudo renovar la sesión de Microsoft:', err);
-    throw new Error('La sesión de Microsoft ha caducado. Cierra sesión y vuelve a entrar.', { cause: err });
+    throw new Error(t('err.msExpired'), { cause: err });
   }
   const updated = { ...account, ...tokens, username: tokens.mclcAuth.name };
   saveConfig({ account: updated });
@@ -99,7 +110,7 @@ async function backendLogin(account) {
 // se vuelve a abrir sola una vez, renovando antes el token de Microsoft.
 async function withSession(call) {
   let account = loadConfig().account;
-  if (!account) throw new Error('No has iniciado sesión.');
+  if (!account) throw new Error(t('err.notLogged'));
   if (!account.sessionToken) account = await backendLogin(await refreshMicrosoft(account));
   try {
     return await call(account.sessionToken);
@@ -128,9 +139,7 @@ ipcMain.handle('login-microsoft', async () => {
     const noGame = code.includes('profile') || code.includes('ownership');
     return {
       ok: false,
-      message: noGame
-        ? 'Esa cuenta de Microsoft no tiene Minecraft Java comprado.'
-        : 'No se pudo completar el inicio de sesión con Microsoft.',
+      message: t(noGame ? 'err.noGame' : 'err.msFailed'),
     };
   }
   let account = {
@@ -152,7 +161,7 @@ ipcMain.handle('login-microsoft', async () => {
 ipcMain.handle('login-offline', async (event, username) => {
   const name = String(username || '').trim();
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
-    return { ok: false, message: 'El nick debe tener entre 3 y 16 caracteres: letras, números y _.' };
+    return { ok: false, message: t('err.nick') };
   }
   let account = { type: 'offline', username: name, uuid: null };
   saveConfig({ account });
@@ -191,6 +200,8 @@ ipcMain.handle('get-modpacks', async () => {
   if (cfg.account) saveConfig({ account: { ...cfg.account, player: data.player } });
   return {
     account: publicAccount(loadConfig().account),
+    news: data.news || null,
+    event: data.event || null,
     modpacks: data.modpacks.map((modpack) => {
       const meta = loadMeta(instanceDir(modpack.id));
       let status = 'update';
@@ -292,7 +303,7 @@ ipcMain.handle('set-mod-enabled', (event, { modpackId, key, enabled }) => {
 ipcMain.handle('add-own-mods', async (event, modpackId) => {
   const id = String(modpackId);
   const picked = await dialog.showOpenDialog(mainWindow, {
-    title: 'Elige los mods que quieres añadir',
+    title: t('dialog.pickMods'),
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Mods', extensions: ['jar'] }],
   });
@@ -320,7 +331,7 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
   const name = String(filename);
   const manifest = await fetchManifest(id);
   // Solo se pueden borrar desde aquí los mods que NO son del modpack.
-  if (!ownModFiles(id, manifest).some((m) => m.filename === name)) throw new Error('Ese mod no es tuyo o ya no está.');
+  if (!ownModFiles(id, manifest).some((m) => m.filename === name)) throw new Error(t('err.notYourMod'));
   fs.rmSync(path.join(instanceDir(id), 'mods', name), { force: true });
   return true;
 });
@@ -329,18 +340,14 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
 // JUGAR
 // ============================================================================
 
-function formatMb(bytes) {
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-}
-
 async function play(modpackId) {
   const progress = (label, percent = null) => send('play-progress', { label, percent });
   const cfg = settings();
   const dir = instanceDir(modpackId);
 
-  progress('Comprobando el modpack');
+  progress(t('prog.checkPack'));
   const manifest = await withSession((token) => api.getManifest(backendUrl(), token, modpackId));
-  if (manifest.loader !== 'forge') throw new Error('Este launcher solo sabe lanzar modpacks de Forge.');
+  if (manifest.loader !== 'forge') throw new Error(t('err.onlyForge'));
 
   const java = await ensureJava({
     runtimeDir: RUNTIME_DIR,
@@ -349,7 +356,7 @@ async function play(modpackId) {
     onProgress: (p) => progress(p.label, p.percent),
   });
   if (java.warning) {
-    send('game-log', `[AVISO] Minecraft ${manifest.mcVersion} pide Java ${java.warning.wanted} y el de Ajustes es Java ${java.warning.found}. Puede que no arranque.`);
+    send('game-log', t('warn.java', { mc: manifest.mcVersion, wanted: java.warning.wanted, found: java.warning.found }));
   }
 
   const versionId = await ensureForge({
@@ -360,7 +367,7 @@ async function play(modpackId) {
     onProgress: (p) => progress(p.label, p.percent),
   });
 
-  progress('Sincronizando mods');
+  progress(t('prog.syncMods'));
   const result = await syncMods({
     instanceDir: dir,
     manifest,
@@ -370,16 +377,24 @@ async function play(modpackId) {
     onProgress: ({ doneFiles, totalFiles, doneBytes, totalBytes }) => {
       if (totalFiles === 0) return;
       progress(
-        `Descargando mods ${doneFiles}/${totalFiles} · ${formatMb(doneBytes)} de ${formatMb(totalBytes)}`,
+        t('prog.mods', {
+          done: doneFiles,
+          total: totalFiles,
+          doneMb: Math.round(doneBytes / 1024 / 1024),
+          totalMb: Math.round(totalBytes / 1024 / 1024),
+        }),
         totalBytes > 0 ? Math.round((doneBytes / totalBytes) * 100) : Math.round((doneFiles / totalFiles) * 100),
       );
     },
   });
   send('modpack-synced', { id: modpackId, ...result });
 
-  progress('Iniciando sesión en Minecraft');
+  progress(t('prog.msLogin'));
   const account = await refreshMicrosoft(loadConfig().account);
-  progress('Arrancando Minecraft');
+  progress(t('prog.starting'));
+  gameLog = [];
+  stoppedByUser = false;
+  gameStartedAt = Date.now();
   gameProcess = await launchGame(
     {
       account,
@@ -397,10 +412,18 @@ async function play(modpackId) {
       freeMenu: modpackId === 'admin',
     },
     {
-      onLog: (line) => send('game-log', line),
+      onLog: (line) => {
+        gameLog.push(line);
+        if (gameLog.length > MAX_GAME_LOG_LINES) gameLog.splice(0, gameLog.length - MAX_GAME_LOG_LINES);
+        send('game-log', line);
+      },
       onClose: (code) => {
         gameProcess = null;
-        send('game-closed', { code });
+        // Cierre con error (y no porque el jugador lo haya cerrado desde el
+        // launcher): se mira si el juego ha dejado un informe.
+        const failed = code !== 0 && !stoppedByUser;
+        const crash = failed ? analyzeCrash({ instanceDir: dir, since: gameStartedAt - 5000, logLines: gameLog }) : null;
+        send('game-closed', { code, crash, modpackId });
       },
     },
   );
@@ -408,7 +431,7 @@ async function play(modpackId) {
 }
 
 ipcMain.handle('play', async (event, modpackId) => {
-  if (busy || gameProcess) return { ok: false, message: 'El juego ya está abierto o preparándose.' };
+  if (busy || gameProcess) return { ok: false, message: t('err.busy') };
   busy = true;
   try {
     await play(String(modpackId));
@@ -423,7 +446,10 @@ ipcMain.handle('play', async (event, modpackId) => {
 });
 
 ipcMain.handle('stop-game', () => {
-  if (gameProcess) gameProcess.kill();
+  if (gameProcess) {
+    stoppedByUser = true;
+    gameProcess.kill();
+  }
   return true;
 });
 
@@ -436,9 +462,10 @@ ipcMain.handle('save-settings', (event, partial = {}) => {
   if (partial.memoryGb !== undefined) next.memoryGb = Math.round(Number(partial.memoryGb)) || 4;
   if (partial.javaPath !== undefined) next.javaPath = String(partial.javaPath).trim();
   if (partial.joinServer !== undefined) next.joinServer = Boolean(partial.joinServer);
+  if (partial.language !== undefined) next.language = i18n.setLanguage(partial.language);
   if (partial.backendUrl !== undefined) {
     const url = api.cleanBaseUrl(partial.backendUrl);
-    if (url && !/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('La dirección del servidor debe empezar por https://');
+    if (url && !/^https?:\/\/[^\s/]+/i.test(url)) throw new Error(t('err.backendUrl'));
     next.backendUrl = url;
     // Otra dirección = otro servidor: la sesión anterior no vale.
     const cfg = loadConfig();
@@ -452,7 +479,7 @@ ipcMain.handle('save-settings', (event, partial = {}) => {
 
 ipcMain.handle('pick-java', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Elige el ejecutable de Java',
+    title: t('dialog.pickJava'),
     properties: ['openFile'],
     filters: process.platform === 'win32' ? [{ name: 'Java', extensions: ['exe'] }] : [],
   });
@@ -473,6 +500,42 @@ ipcMain.handle('repair', (event, modpackId) => {
 });
 
 ipcMain.handle('open-web', () => shell.openExternal(WEB_URL));
+
+// Guarda en un .zip los registros del modpack, listos para mandar por Discord.
+ipcMain.handle('export-logs', async (event, modpackId) => {
+  const id = String(modpackId);
+  const dir = instanceDir(id);
+  if (collectLogFiles(dir).length === 0 && gameLog.length === 0) return { ok: false, reason: 'none' };
+
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  const picked = await dialog.showSaveDialog(mainWindow, {
+    title: t('logs.dialog'),
+    defaultPath: path.join(app.getPath('desktop'), `nova-registros-${id}-${stamp}.zip`),
+    filters: [{ name: 'ZIP', extensions: ['zip'] }],
+  });
+  if (picked.canceled || !picked.filePath) return { ok: false, reason: 'cancelled' };
+
+  const cfg = settings();
+  const account = loadConfig().account;
+  await writeLogsZip({
+    dest: picked.filePath,
+    instanceDir: dir,
+    consoleLines: gameLog,
+    info: {
+      Launcher: app.getVersion(),
+      Modpack: id,
+      Fecha: new Date().toISOString(),
+      Sistema: `${os.type()} ${os.release()} ${os.arch()}`,
+      'Memoria del equipo': `${Math.round(os.totalmem() / 1024 ** 3)} GB`,
+      'Memoria para el juego': `${cfg.memoryGb} GB`,
+      Java: cfg.javaPath || 'automático',
+      Cuenta: account ? `${account.username} (${account.type})` : 'sin sesión',
+      'Opcionales desactivados': disabledMods(id).join(', ') || 'ninguno',
+    },
+  });
+  shell.showItemInFolder(picked.filePath);
+  return { ok: true };
+});
 
 // ============================================================================
 // ACTUALIZACIONES DEL PROPIO LAUNCHER
@@ -534,6 +597,8 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus();
   });
   app.whenReady().then(() => {
+    // Idioma guardado o, la primera vez, el del sistema.
+    i18n.setLanguage(loadConfig().language || app.getLocale());
     Menu.setApplicationMenu(null);
     createWindow();
     setupAutoUpdates();

@@ -544,3 +544,64 @@ input::placeholder {
 .pack-tools + .hint {
   margin: 0 0 0.6rem;
 }
+
+/* ---------- Novedades y evento ---------- */
+
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+@media (max-width: 900px) {
+  .news-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.news form {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+.news label {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.news textarea {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text-main);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  resize: vertical;
+  min-height: 6rem;
+}
+.event-row {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.event-row label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.event-row input {
+  color-scheme: dark;
+}
+.event-row input[type='number'] {
+  width: 6rem;
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+.form-actions .hint {
+  margin: 0 auto 0 0;
+}
