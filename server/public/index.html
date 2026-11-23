@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#17150f" />
+    <title>NOVA 2 · Panel del launcher</title>
+    <link rel="icon" href="favicon.png" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body data-view="loading">
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- ---------- Entrada ---------- -->
+    <main class="gate" id="gate">
+      <img class="gate-logo" src="logo.webp" alt="" width="120" height="120" />
+      <h1 class="glitch" data-text="NOVA 2">NOVA 2</h1>
+      <p class="gate-sub">PANEL DEL LAUNCHER</p>
+      <p class="gate-status" id="gateStatus" role="status">CONECTANDO...</p>
+      <div id="googleButton" class="google-button"></div>
+      <p class="gate-note">Solo la cuenta del servidor puede entrar.</p>
+    </main>
+
+    <!-- ---------- Panel ---------- -->
+    <div class="panel" id="panel" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <img src="logo.webp" alt="" width="36" height="36" />
+          <span>NOVA 2 <em>· PANEL</em></span>
+        </div>
+        <div class="session">
+          <span id="sessionEmail"></span>
+          <button class="btn btn-ghost" id="logoutBtn" type="button">Salir</button>
+        </div>
+      </header>
+
+      <div class="grid">
+        <section class="pack" data-pack="normal" aria-labelledby="pack-normal-title"></section>
+        <section class="pack" data-pack="admin" aria-labelledby="pack-admin-title"></section>
+
+        <section class="admins" aria-labelledby="admins-title">
+          <h2 id="admins-title">CUENTAS ADMIN</h2>
+          <p class="hint">
+            Los nicks de esta lista ven el modpack de admins en el launcher. Tiene que ser una cuenta premium con sesión de
+            Microsoft: un nick offline no cuenta, aunque se llame igual.
+          </p>
+          <form class="admin-form" id="adminForm" autocomplete="off">
+            <label class="sr-only" for="adminNick">Nick de Minecraft</label>
+            <input id="adminNick" name="nick" maxlength="16" placeholder="Nick de Minecraft" required pattern="[A-Za-z0-9_]{1,16}" />
+            <button class="btn btn-purple" type="submit">Añadir</button>
+          </form>
+          <ul class="admin-list" id="adminList"></ul>
+        </section>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+    <template id="packTemplate">
+      <header class="pack-head">
+        <div>
+          <span class="pack-tag"></span>
+          <h2 class="pack-title"></h2>
+        </div>
+        <p class="pack-meta"></p>
+      </header>
+
+      <label class="drop">
+        <input class="drop-input sr-only" type="file" accept=".jar" multiple />
+        <span class="drop-title">ARRASTRA AQUÍ LOS .JAR</span>
+        <span class="drop-sub">o pulsa para elegirlos. Un mod con el mismo nombre de archivo sustituye al anterior.</span>
+      </label>
+      <div class="upload" hidden>
+        <div class="upload-bar"><span></span></div>
+        <p class="upload-text"></p>
+      </div>
+
+      <div class="pack-tools">
+        <input class="filter" type="search" placeholder="Buscar mod..." aria-label="Buscar mod" />
+        <button class="btn btn-ghost copy-btn" type="button" hidden>Copiar los del normal</button>
+        <button class="btn btn-danger clear-btn" type="button">Vaciar</button>
+      </div>
+      <ul class="mod-list"></ul>
+      <p class="empty" hidden>Sin mods todavía.</p>
+
+      <details class="versions">
+        <summary>Versión de Minecraft y Forge</summary>
+        <form class="version-form">
+          <label>Minecraft <input name="mcVersion" required maxlength="40" /></label>
+          <label>Forge <input name="loaderVersion" maxlength="40" placeholder="recomendada" /></label>
+          <button class="btn btn-ghost" type="submit">Guardar</button>
+        </form>
+        <p class="hint">Tiene que coincidir con la del servidor. Si dejas Forge vacío, el launcher instala la recomendada.</p>
+      </details>
+    </template>
+
+    <script src="panel.js" defer></script>
+  </body>
+</html>

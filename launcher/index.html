@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: https://mc-heads.net; style-src 'self'; script-src 'self'"
+    />
+    <title>Nova Launcher</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-view="boot">
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- ---------- Inicio de sesión ---------- -->
+    <main class="login" id="loginView">
+      <img class="login-logo" src="assets/logo.webp" alt="" width="132" height="132" />
+      <h1 class="glitch">NOVA 2</h1>
+      <p class="login-signal" id="loginSignal">SEÑAL PERDIDA... IDENTIFÍCATE</p>
+
+      <button class="btn btn-primary btn-big" id="msLoginBtn" type="button">ENTRAR CON MICROSOFT</button>
+
+      <div class="divider"><span>o sin cuenta premium</span></div>
+      <form class="offline-form" id="offlineForm" autocomplete="off">
+        <label class="sr-only" for="offlineNick">Nick</label>
+        <input id="offlineNick" maxlength="16" placeholder="Tu nick" spellcheck="false" />
+        <button class="btn" type="submit" id="offlineLoginBtn">Entrar</button>
+      </form>
+      <p class="login-error" id="loginError" role="alert" hidden></p>
+
+      <button class="link-btn login-settings" type="button" data-open-settings>Ajustes</button>
+    </main>
+
+    <!-- ---------- Principal ---------- -->
+    <div class="main" id="mainView">
+      <aside class="side">
+        <div class="brand">
+          <img src="assets/logo.webp" alt="" width="44" height="44" />
+          <div>
+            <strong>NOVA 2</strong>
+            <span>LAUNCHER</span>
+          </div>
+        </div>
+
+        <div class="account">
+          <div class="avatar" id="avatar" aria-hidden="true"></div>
+          <div class="account-text">
+            <strong id="accountName"></strong>
+            <span id="accountType"></span>
+          </div>
+          <span class="badge-admin" id="adminBadge" hidden>ADMIN</span>
+        </div>
+
+        <div class="server" id="serverBox" data-state="unknown">
+          <span class="server-label">SERVIDOR</span>
+          <span class="server-state"><i class="dot" aria-hidden="true"></i><span id="serverText">Comprobando...</span></span>
+          <button class="link-btn server-ip" id="copyIpBtn" type="button" title="Copiar la IP"></button>
+        </div>
+
+        <nav class="side-nav">
+          <button class="side-btn" type="button" id="webBtn">Web del servidor</button>
+          <button class="side-btn" type="button" data-open-settings>Ajustes</button>
+          <button class="side-btn" type="button" id="logoutBtn">Cerrar sesión</button>
+        </nav>
+        <p class="version" id="versionLabel"></p>
+      </aside>
+
+      <section class="stage">
+        <div class="update-banner" id="updateBanner" hidden>
+          <span id="updateText"></span>
+          <button class="btn" type="button" id="updateBtn">Reiniciar y actualizar</button>
+        </div>
+
+        <div class="tabs" id="packTabs" role="tablist" aria-label="Modpacks"></div>
+
+        <div class="hero" id="hero">
+          <span class="hero-tag" id="packTag"></span>
+          <h1 id="packTitle"></h1>
+          <p class="hero-desc" id="packDesc"></p>
+          <ul class="chips" id="packChips"></ul>
+          <p class="hero-state" id="packState"></p>
+        </div>
+
+        <div class="stage-empty" id="stageEmpty" hidden>
+          <p class="stage-empty-title" id="emptyTitle"></p>
+          <p id="emptyText"></p>
+          <button class="btn" type="button" id="retryBtn">Reintentar</button>
+        </div>
+
+        <div class="launch" id="launchBox">
+          <button class="btn btn-primary btn-play" id="playBtn" type="button">JUGAR</button>
+          <div class="progress" id="progressBox" hidden>
+            <p class="progress-label" id="progressLabel"></p>
+            <div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+              <span id="progressFill"></span>
+            </div>
+          </div>
+        </div>
+
+        <details class="console" id="consoleBox">
+          <summary>Consola del juego</summary>
+          <pre id="consoleLog"></pre>
+        </details>
+      </section>
+    </div>
+
+    <!-- ---------- Ajustes ---------- -->
+    <dialog class="settings" id="settingsDialog" aria-labelledby="settingsTitle">
+      <form method="dialog" id="settingsForm">
+        <h2 id="settingsTitle">AJUSTES</h2>
+
+        <div class="field">
+          <label for="memoryRange">Memoria para Minecraft: <output id="memoryOut"></output></label>
+          <input id="memoryRange" type="range" min="2" step="1" />
+          <p class="hint">Para este modpack van bien entre 6 y 8 GB si tu equipo los tiene.</p>
+        </div>
+
+        <label class="check">
+          <input type="checkbox" id="joinServerCheck" />
+          <span>Entrar directamente al servidor al abrir el juego</span>
+        </label>
+
+        <div class="field">
+          <label for="javaPath">Java</label>
+          <div class="row">
+            <input id="javaPath" placeholder="Automático (lo descarga el launcher)" spellcheck="false" />
+            <button class="btn" type="button" id="pickJavaBtn">Elegir</button>
+          </div>
+        </div>
+
+        <div class="field" id="packActions">
+          <span class="field-title">Modpack seleccionado</span>
+          <div class="row">
+            <button class="btn" type="button" id="openFolderBtn">Abrir carpeta</button>
+            <button class="btn" type="button" id="repairBtn">Reparar mods</button>
+          </div>
+        </div>
+
+        <details class="advanced">
+          <summary>Avanzado</summary>
+          <div class="field">
+            <label for="backendUrl">Dirección del servidor del launcher</label>
+            <input id="backendUrl" placeholder="https://..." spellcheck="false" />
+          </div>
+        </details>
+
+        <p class="settings-error" id="settingsError" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="settingsCancel">Cancelar</button>
+          <button class="btn btn-primary" type="submit">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

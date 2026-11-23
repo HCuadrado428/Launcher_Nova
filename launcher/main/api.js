@@ -1,0 +1,70 @@
+const fs = require('node:fs');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+
+// Cliente del backend del launcher (carpeta server/ del repo). No depende de
+// Electron: recibe la URL y el token en cada llamada.
+
+const API_TIMEOUT_MS = 30_000;
+const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function cleanBaseUrl(url) {
+  return String(url || '').trim().replace(/\/+$/, '');
+}
+
+async function request(baseUrl, pathname, { method = 'GET', token, body } = {}) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  let res;
+  try {
+    res = await fetch(`${cleanBaseUrl(baseUrl)}${pathname}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    });
+  } catch {
+    throw new ApiError(0, 'No se pudo conectar con el servidor del launcher. Comprueba tu conexión.');
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, (data && data.error) || `El servidor respondió ${res.status}.`);
+  if (!data) throw new ApiError(res.status, 'El servidor del launcher ha devuelto una respuesta inesperada.');
+  return data;
+}
+
+async function downloadFile(baseUrl, pathname, token, destPath) {
+  let res;
+  try {
+    res = await fetch(`${cleanBaseUrl(baseUrl)}${pathname}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
+  } catch {
+    throw new ApiError(0, 'Se cortó la conexión durante la descarga.');
+  }
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => null);
+    throw new ApiError(res.status, (data && data.error) || `No se pudo descargar (estado ${res.status}).`);
+  }
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(destPath));
+}
+
+module.exports = {
+  ApiError,
+  cleanBaseUrl,
+  loginMicrosoft: (baseUrl, accessToken) =>
+    request(baseUrl, '/api/auth/microsoft', { method: 'POST', body: { accessToken } }),
+  loginOffline: (baseUrl, username) => request(baseUrl, '/api/auth/offline', { method: 'POST', body: { username } }),
+  listModpacks: (baseUrl, token) => request(baseUrl, '/api/modpacks', { token }),
+  getManifest: (baseUrl, token, modpackId) => request(baseUrl, `/api/modpacks/${modpackId}/manifest`, { token }),
+  downloadMod: (baseUrl, token, modpackId, sha1, destPath) =>
+    downloadFile(baseUrl, `/api/modpacks/${modpackId}/files/${sha1}`, token, destPath),
+};
