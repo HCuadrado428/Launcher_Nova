@@ -1,11 +1,16 @@
 name: Publicar instalador
 
-# Al subir una etiqueta vX.Y.Z (igual que la "version" de launcher/package.json)
-# se compila el instalador de Windows y se publica como Release. Los launchers
-# ya instalados se actualizan solos desde ahí.
+# Compila el instalador de Windows y lo publica como Release vX.Y.Z, con la
+# "version" de launcher/package.json. Se lanza solo al subir a main un cambio
+# de esa versión (o a mano desde la pestaña Actions). Los launchers ya
+# instalados se actualizan solos desde el Release.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths:
+      - launcher/package.json
+      - .github/workflows/release.yml
+  workflow_dispatch:
 
 permissions:
   contents: write

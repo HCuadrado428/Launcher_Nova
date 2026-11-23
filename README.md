@@ -47,13 +47,7 @@ Abre la dirección del backend, entra con `noovaasmp@gmail.com` y ya puedes subi
 
 1. Pon la dirección del backend en `launcher/main/constants.js` (`DEFAULT_BACKEND_URL`).
 2. Para probarlo: `cd launcher && npm install && npm start`.
-3. Para publicar el instalador de Windows: sube una etiqueta con la versión de `launcher/package.json`:
-
-   ```sh
-   git tag v1.0.0 && git push origin v1.0.0
-   ```
-
-   GitHub Actions compila el instalador y lo publica en **Releases**. Los launchers instalados se actualizan solos cuando publiques una versión nueva (sube `version` en `launcher/package.json` y etiqueta otra vez).
+3. Para publicar el instalador de Windows: sube el número de `version` en `launcher/package.json` y haz push a `main`. GitHub Actions compila el instalador y lo publica en **Releases** con esa versión. Los launchers instalados se actualizan solos.
 
 También se puede compilar a mano en Windows con `npm run dist` (el instalador queda en `launcher/dist/`).
 
