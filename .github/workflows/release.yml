@@ -30,6 +30,15 @@ jobs:
             echo "::error::Pon la dirección de tu backend en launcher/main/constants.js antes de publicar."
             exit 1
           fi
+      # El Release se crea antes de compilar: si se deja a electron-builder,
+      # intenta crearlo dos veces a la vez (una por archivo) y la segunda falla.
+      - name: Crear el Release si no existe
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="v$(node -p "require('./launcher/package.json').version")"
+          gh release view "$version" >/dev/null 2>&1 || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher."
       - name: Compilar y publicar
         working-directory: launcher
         env:
