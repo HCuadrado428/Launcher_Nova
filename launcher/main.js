@@ -288,7 +288,9 @@ async function play(modpackId) {
       versionId,
       javaPath: java.javaPath,
       memoryGb: cfg.memoryGb,
-      serverAddress: cfg.joinServer ? SERVER_ADDRESS : null,
+      // El modpack admin abre siempre en el menú principal: ahí está el mod
+      // para cambiar de cuenta, y entrar directo al servidor se lo saltaría.
+      serverAddress: cfg.joinServer && modpackId !== 'admin' ? SERVER_ADDRESS : null,
     },
     {
       onLog: (line) => send('game-log', line),
