@@ -5,7 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../../server/src/app');
 const api = require('../main/api');
-const { syncMods, planSync, loadMeta, safeModFilename } = require('../main/sync');
+const { syncMods, planSync, loadMeta, safeModFilename, modKey } = require('../main/sync');
+const { forgeJar } = require('../../server/testlib/zip');
 
 // La sincronización del launcher contra el backend de verdad (carpeta
 // server/), arrancado en un puerto libre con Google/Mojang/Microsoft falsos.
@@ -35,12 +36,13 @@ async function panel(pathname, { method = 'POST', files, body } = {}) {
   return res.json();
 }
 
-async function sync(token, modpackId, instanceDir) {
+async function sync(token, modpackId, instanceDir, disabled = []) {
   const manifest = await api.getManifest(base, token, modpackId);
   const progress = [];
   const result = await syncMods({
     instanceDir,
     manifest,
+    disabled,
     download: (mod, dest) => api.downloadMod(base, token, modpackId, mod.sha1, dest),
     onProgress: (p) => progress.push(p),
   });
@@ -186,4 +188,44 @@ test('planSync solo toca los mods que puso el launcher', () => {
     plan.toDownload.map((m) => m.filename),
     ['c.jar'],
   );
+});
+
+test('un opcional desactivado no se baja, ni vuelve cuando el dueño lo actualiza', async () => {
+  const { token } = await api.loginOffline(base, 'Jugador_2');
+  const dir = path.join(tmp, 'inst-opcional');
+  await panel('/api/panel/modpacks/normal/mods', { method: 'DELETE' });
+  const state = await panel('/api/panel/modpacks/normal/mods', {
+    files: [
+      ['create-0.5.1.jar', forgeJar('create')],
+      ['journeymap-5.10.3.jar', forgeJar('journeymap', 'v1')],
+    ],
+  });
+  const map = state.modpacks[0].mods.find((m) => m.modId === 'journeymap');
+  await panel(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', body: { optional: true } });
+
+  // Por defecto los opcionales vienen puestos.
+  await sync(token, 'normal', dir);
+  assert.deepEqual(modsIn(dir), ['create-0.5.1.jar', 'journeymap-5.10.3.jar']);
+
+  // El jugador lo desactiva: se borra y no se repone.
+  const disabled = [modKey({ modId: 'journeymap', filename: 'journeymap-5.10.3.jar' })];
+  const off = await sync(token, 'normal', dir, disabled);
+  assert.deepEqual([off.downloaded, off.deleted], [0, 1]);
+  assert.deepEqual(modsIn(dir), ['create-0.5.1.jar']);
+  assert.equal(loadMeta(dir).versionHash, off.manifest.versionHash, 'queda al día aunque le falte el opcional');
+  assert.equal((await sync(token, 'normal', dir, disabled)).downloaded, 0);
+
+  // El dueño sube una versión nueva con otro nombre: sigue desactivado.
+  await panel('/api/panel/modpacks/normal/mods', { files: [['journeymap-5.10.4.jar', forgeJar('journeymap', 'v2')]] });
+  await sync(token, 'normal', dir, disabled);
+  assert.deepEqual(modsIn(dir), ['create-0.5.1.jar']);
+
+  // Un mod obligatorio no se puede quitar aunque esté en la lista de desactivados.
+  await sync(token, 'normal', dir, [...disabled, 'create']);
+  assert.deepEqual(modsIn(dir), ['create-0.5.1.jar']);
+
+  // Al volver a activarlo se baja la versión actual.
+  const on = await sync(token, 'normal', dir, []);
+  assert.equal(on.downloaded, 1);
+  assert.deepEqual(modsIn(dir), ['create-0.5.1.jar', 'journeymap-5.10.4.jar']);
 });

@@ -12,10 +12,11 @@ server/     Backend + panel web. Se despliega en Railway.
 
 - Hay **dos modpacks**: `NOVA 2` (para todos) y `NOVA 2 · ADMIN` (solo cuentas admin).
 - El **panel web** es la página principal del backend (`https://tu-backend.up.railway.app/`). Solo deja entrar con Google al correo de `OWNER_EMAIL` (`noovaasmp@gmail.com`). Desde ahí:
-  - arrastras los `.jar` a cada modpack (subir uno con el mismo nombre de archivo lo sustituye), o los quitas;
+  - arrastras los `.jar` a cada modpack, o los quitas. Subir otra versión de un mod sustituye a la anterior aunque el archivo se llame distinto;
+  - marcas como **Opcional** los mods de cliente (minimapa, shaders...): cada jugador decide en el launcher si los usa;
   - «Copiar los del normal» deja el modpack de admins igual que el normal, para subir encima solo los mods extra;
   - añades o quitas **nicks admin**.
-- En el **launcher**, cada vez que alguien pulsa Jugar se compara su carpeta con el modpack del panel y se baja solo lo que ha cambiado (y se borra lo que ya no está). Los mods que el jugador haya metido a mano no se tocan.
+- En el **launcher**, cada vez que alguien pulsa Jugar se compara su carpeta con el modpack del panel y se baja solo lo que ha cambiado (y se borra lo que ya no está). Los mods que el jugador haya metido a mano no se tocan, y los opcionales que haya desactivado no se le vuelven a bajar. Todo eso se gestiona desde el botón **Mods** del launcher.
 - Una cuenta ve el modpack de admins solo si ha iniciado sesión **con Microsoft** y su cuenta está en la lista. El backend lo comprueba preguntando a los servidores de Minecraft, así que un nick offline con el mismo nombre no sirve. Quitar un nick de la lista le corta el acceso al momento.
 
 > El launcher no da `/op` en el servidor de Minecraft: la lista de admins del panel y los ops del servidor son dos listas distintas que mantienes tú.

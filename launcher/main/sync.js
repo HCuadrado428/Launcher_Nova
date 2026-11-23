@@ -45,6 +45,20 @@ function safeModFilename(filename) {
   );
 }
 
+// Clave con la que se recuerda que un jugador ha quitado un mod opcional: el
+// modId si el backend lo conoce (aguanta que el archivo cambie de nombre al
+// actualizarse), y si no el nombre del archivo.
+function modKey(mod) {
+  return String(mod.modId || mod.filename).toLowerCase();
+}
+
+// Los mods que le tocan a este jugador: todos menos los opcionales que ha
+// desactivado.
+function wantedMods(manifestMods, disabled = []) {
+  const off = new Set(disabled);
+  return manifestMods.filter((mod) => !(mod.optional && off.has(modKey(mod))));
+}
+
 // Decide qué hay que borrar y qué hay que bajar. Solo se tocan los archivos
 // que puso el launcher (los que constan en el meta local): si el jugador ha
 // metido a mano un mod suyo en la carpeta, se respeta.
@@ -78,17 +92,19 @@ async function runLimited(items, limit, worker) {
 }
 
 // download(mod, destPath) debe dejar el archivo completo en destPath.
-async function syncMods({ instanceDir, manifest, download, onProgress = () => {} }) {
+async function syncMods({ instanceDir, manifest, download, disabled = [], onProgress = () => {} }) {
   const modsDir = path.join(instanceDir, 'mods');
   fs.mkdirSync(modsDir, { recursive: true });
 
-  const remoteMods = manifest.mods;
-  for (const mod of remoteMods) {
+  for (const mod of manifest.mods) {
     if (!safeModFilename(mod.filename) || !/^[a-f0-9]{40}$/.test(mod.sha1)) {
       throw new Error(`El modpack contiene un archivo con un nombre no válido: ${String(mod.filename).slice(0, 80)}`);
     }
   }
 
+  // Un opcional desactivado no se baja; si ya estaba bajado, se borra como
+  // cualquier mod que deja de estar en la lista.
+  const remoteMods = wantedMods(manifest.mods, disabled);
   const meta = loadMeta(instanceDir);
   const { toDelete, toDownload } = planSync(meta.mods, remoteMods, fs.readdirSync(modsDir));
 
@@ -134,4 +150,4 @@ async function syncMods({ instanceDir, manifest, download, onProgress = () => {}
   return { downloaded: toDownload.length, deleted: toDelete.length };
 }
 
-module.exports = { syncMods, planSync, loadMeta, saveMeta, safeModFilename, META_FILE };
+module.exports = { syncMods, planSync, loadMeta, saveMeta, safeModFilename, modKey, wantedMods, META_FILE };

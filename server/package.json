@@ -4,7 +4,9 @@
   "private": true,
   "description": "Backend y panel web del Nova Launcher (modpacks, admins y descargas)",
   "main": "src/index.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
@@ -15,6 +17,7 @@
     "express-rate-limit": "^8.0.0",
     "google-auth-library": "^10.0.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.0"
+    "multer": "^2.0.0",
+    "yauzl": "^3.4.0"
   }
 }

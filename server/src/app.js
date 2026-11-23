@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { rateLimit } = require('express-rate-limit');
 const { createStore, MODPACK_IDS } = require('./store');
 const { normalizeUuid } = require('./external');
+const { readModId } = require('./jarinfo');
 
 const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
@@ -71,6 +72,7 @@ function createApp(options) {
   if (!owner) throw new Error('Falta OWNER_EMAIL.');
 
   const store = createStore(dataDir);
+  store.backfillModIds(readModId).catch((err) => console.error('[ERROR] No se pudieron leer los modId:', err));
   const app = express();
   app.set('trust proxy', 1); // Railway pone un proxy delante
   app.disable('x-powered-by');
@@ -273,8 +275,9 @@ function createApp(options) {
           if (!filename) throw new Error('No es un .jar o el nombre no es válido.');
           if (file.size === 0 || !looksLikeJar(file.path)) throw new Error('El archivo no es un .jar válido.');
           const sha1 = await sha1OfFile(file.path);
-          const { replaced } = store.addMod(req.params.id, { tmpPath: file.path, filename, sha1, size: file.size });
-          results.push({ filename, ok: true, replaced });
+          const modId = await readModId(file.path);
+          const { replaced } = store.addMod(req.params.id, { tmpPath: file.path, filename, sha1, size: file.size, modId });
+          results.push({ filename, ok: true, replaced: replaced.length > 0, replacedFiles: replaced });
         } catch (err) {
           fs.rmSync(file.path, { force: true });
           results.push({ filename: filename || String(file.originalname).slice(0, 180), ok: false, error: err.message });
@@ -284,6 +287,16 @@ function createApp(options) {
       res.json({ results, ...panelState() });
     },
   );
+
+  // Marca un mod como opcional: en el launcher cada jugador decide si lo usa.
+  app.patch('/api/panel/modpacks/:id/mods/:modId', requireOwner, (req, res) => {
+    panelModpack(req);
+    if (typeof (req.body && req.body.optional) !== 'boolean') throw new HttpError(400, 'Falta indicar si es opcional.');
+    if (!store.setModOptional(req.params.id, req.params.modId, req.body.optional)) {
+      throw new HttpError(404, 'Ese mod ya no está.');
+    }
+    res.json(panelState());
+  });
 
   app.delete('/api/panel/modpacks/:id/mods/:modId', requireOwner, (req, res) => {
     panelModpack(req);

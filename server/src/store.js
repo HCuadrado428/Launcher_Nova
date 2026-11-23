@@ -32,7 +32,7 @@ function emptyModpack(id) {
 // versión de Minecraft/Forge. El launcher la compara con la última que
 // sincronizó para saber si hay actualización.
 function versionHash(modpack) {
-  const lines = modpack.mods.map((m) => `${m.sha1}:${m.filename}`).sort();
+  const lines = modpack.mods.map((m) => `${m.sha1}:${m.filename}${m.optional ? ':opcional' : ''}`).sort();
   lines.push(`${modpack.mcVersion}|${modpack.loader}|${modpack.loaderVersion}`);
   return crypto.createHash('sha1').update(lines.join('\n')).digest('hex');
 }
@@ -103,22 +103,57 @@ function createStore(dataDir) {
       return out;
     },
 
-    // Añade un .jar ya subido a tmp/. Si en el modpack hay otro mod con el
-    // mismo nombre de archivo, lo sustituye (es una actualización del mod).
-    addMod(id, { tmpPath, filename, sha1, size }) {
+    // Añade un .jar ya subido a tmp/. Sustituye al mod que tuviera el mismo
+    // nombre de archivo o el mismo modId (otra versión del mismo mod: dos
+    // copias harían que Forge no arrancara), y hereda si era opcional.
+    addMod(id, { tmpPath, filename, sha1, size, modId = null }) {
       const modpack = data.modpacks[id];
       const dest = filePath(sha1);
       if (fs.existsSync(dest)) fs.rmSync(tmpPath, { force: true });
       else fs.renameSync(tmpPath, dest);
 
-      const replaced = modpack.mods.filter((m) => m.filename.toLowerCase() === filename.toLowerCase());
+      const replaced = modpack.mods.filter(
+        (m) => m.filename.toLowerCase() === filename.toLowerCase() || (modId && m.modId === modId),
+      );
       modpack.mods = modpack.mods.filter((m) => !replaced.includes(m));
-      const mod = { id: crypto.randomUUID(), filename, sha1, size, uploadedAt: new Date().toISOString() };
+      const mod = {
+        id: crypto.randomUUID(),
+        filename,
+        sha1,
+        size,
+        modId,
+        optional: replaced.some((m) => m.optional),
+        uploadedAt: new Date().toISOString(),
+      };
       modpack.mods.push(mod);
       touch(modpack);
       save();
       removeOrphanFiles(replaced.map((m) => m.sha1));
-      return { mod, replaced: replaced.length > 0 };
+      return { mod, replaced: replaced.map((m) => m.filename) };
+    },
+
+    setModOptional(id, modId, optional) {
+      const modpack = data.modpacks[id];
+      const mod = modpack.mods.find((m) => m.id === modId);
+      if (!mod) return false;
+      mod.optional = Boolean(optional);
+      touch(modpack);
+      save();
+      return true;
+    },
+
+    // Los mods subidos antes de que se guardara el modId no lo tienen: se lee
+    // de sus .jar una vez, al arrancar.
+    async backfillModIds(readModId) {
+      let changed = false;
+      for (const id of MODPACK_IDS) {
+        for (const mod of data.modpacks[id].mods) {
+          if (mod.modId !== undefined) continue;
+          mod.modId = await readModId(filePath(mod.sha1));
+          changed = true;
+        }
+      }
+      if (changed) save();
     },
 
     removeMods(id, modIds) {

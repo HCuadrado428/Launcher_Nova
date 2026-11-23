@@ -9,7 +9,7 @@ const { loadConfig, saveConfig } = require('./main/config');
 const { GAME_ROOT, RUNTIME_DIR, instanceDir } = require('./main/paths');
 const { DEFAULT_BACKEND_URL, SERVER_ADDRESS, WEB_URL } = require('./main/constants');
 const api = require('./main/api');
-const { syncMods, loadMeta, META_FILE } = require('./main/sync');
+const { syncMods, loadMeta, saveMeta, safeModFilename, modKey, META_FILE } = require('./main/sync');
 const { ensureForge } = require('./main/forge');
 const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
@@ -225,6 +225,107 @@ ipcMain.handle('server-status', async () => {
 });
 
 // ============================================================================
+// MODS DEL JUGADOR
+// ============================================================================
+
+// Mods opcionales que este jugador ha desactivado, por modpack.
+function disabledMods(modpackId) {
+  const all = loadConfig().disabledMods || {};
+  return Array.isArray(all[modpackId]) ? all[modpackId] : [];
+}
+
+// Hace que el modpack figure como pendiente de sincronizar, para que la
+// interfaz avise de que el cambio se aplica al pulsar Jugar.
+function markPendingSync(modpackId) {
+  const dir = instanceDir(modpackId);
+  const meta = loadMeta(dir);
+  if (meta.versionHash) saveMeta(dir, { ...meta, versionHash: null });
+}
+
+async function fetchManifest(modpackId) {
+  return withSession((token) => api.getManifest(backendUrl(), token, modpackId));
+}
+
+function ownModFiles(modpackId, manifest) {
+  const modsDir = path.join(instanceDir(modpackId), 'mods');
+  const packFiles = new Set(manifest.mods.map((m) => m.filename.toLowerCase()));
+  let names = [];
+  try {
+    names = fs.readdirSync(modsDir);
+  } catch {
+    // La carpeta aún no existe: no hay mods propios.
+  }
+  return names
+    .filter((name) => safeModFilename(name) && !packFiles.has(name.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b))
+    .map((filename) => ({ filename, size: fs.statSync(path.join(modsDir, filename)).size }));
+}
+
+// Lo que enseña la ventana «Mods»: los opcionales del modpack (con si están
+// activados) y los que el jugador ha añadido por su cuenta.
+async function modsView(modpackId) {
+  const manifest = await fetchManifest(modpackId);
+  const off = new Set(disabledMods(modpackId));
+  return {
+    optional: manifest.mods
+      .filter((m) => m.optional)
+      .map((m) => ({ key: modKey(m), filename: m.filename, size: m.size, enabled: !off.has(modKey(m)) })),
+    own: ownModFiles(modpackId, manifest),
+  };
+}
+
+ipcMain.handle('get-mods', (event, modpackId) => modsView(String(modpackId)));
+
+ipcMain.handle('set-mod-enabled', (event, { modpackId, key, enabled }) => {
+  const id = String(modpackId);
+  instanceDir(id); // valida el id
+  const next = new Set(disabledMods(id));
+  if (enabled) next.delete(String(key));
+  else next.add(String(key));
+  saveConfig({ disabledMods: { ...(loadConfig().disabledMods || {}), [id]: [...next] } });
+  markPendingSync(id);
+  return true;
+});
+
+// Copia a la carpeta de mods los .jar que elija el jugador. No deja pisar un
+// mod del modpack: la sincronización lo trataría como suyo.
+ipcMain.handle('add-own-mods', async (event, modpackId) => {
+  const id = String(modpackId);
+  const picked = await dialog.showOpenDialog(mainWindow, {
+    title: 'Elige los mods que quieres añadir',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Mods', extensions: ['jar'] }],
+  });
+  if (picked.canceled) return { added: [], skipped: [] };
+  const manifest = await fetchManifest(id);
+  const packFiles = new Set(manifest.mods.map((m) => m.filename.toLowerCase()));
+  const modsDir = path.join(instanceDir(id), 'mods');
+  fs.mkdirSync(modsDir, { recursive: true });
+  const added = [];
+  const skipped = [];
+  for (const source of picked.filePaths) {
+    const filename = path.basename(source);
+    if (!safeModFilename(filename) || packFiles.has(filename.toLowerCase())) {
+      skipped.push(filename);
+      continue;
+    }
+    fs.copyFileSync(source, path.join(modsDir, filename));
+    added.push(filename);
+  }
+  return { added, skipped };
+});
+
+ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
+  const id = String(modpackId);
+  const name = String(filename);
+  const manifest = await fetchManifest(id);
+  // Solo se pueden borrar desde aquí los mods que NO son del modpack.
+  if (!ownModFiles(id, manifest).some((m) => m.filename === name)) throw new Error('Ese mod no es tuyo o ya no está.');
+  fs.rmSync(path.join(instanceDir(id), 'mods', name), { force: true });
+  return true;
+});
+
+// ============================================================================
 // JUGAR
 // ============================================================================
 
@@ -263,6 +364,7 @@ async function play(modpackId) {
   const result = await syncMods({
     instanceDir: dir,
     manifest,
+    disabled: disabledMods(modpackId),
     download: (mod, dest) =>
       withSession((token) => api.downloadMod(backendUrl(), token, modpackId, mod.sha1, dest)),
     onProgress: ({ doneFiles, totalFiles, doneBytes, totalBytes }) => {

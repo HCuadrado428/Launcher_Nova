@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { createApp } = require('../src/app');
+const { forgeJar } = require('../testlib/zip');
 
 // Tests de la API contra un servidor real en un puerto libre, con Google,
 // Mojang y Microsoft sustituidos por versiones falsas.
@@ -272,4 +273,91 @@ test('cambiar la versión de Forge valida el formato', async () => {
   assert.equal(bad.status, 400);
   const ok = await api('/api/panel/modpacks/normal', { method: 'PATCH', token: owner, body: { loaderVersion: '47.4.0' } });
   assert.equal(ok.data.modpacks[0].loaderVersion, '47.4.0');
+});
+
+test('otra versión del mismo mod sustituye a la anterior aunque cambie el nombre', async () => {
+  const { owner, player } = await login();
+  await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
+  await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([
+      ['journeymap-5.10.3.jar', forgeJar('journeymap', 'v1')],
+      ['create-0.5.1.jar', forgeJar('create')],
+    ]),
+  });
+  const up = await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([['journeymap-5.10.4.jar', forgeJar('journeymap', 'v2')]]),
+  });
+  assert.deepEqual(up.data.results[0].replacedFiles, ['journeymap-5.10.3.jar']);
+  const manifest = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.deepEqual(
+    manifest.mods.map((m) => [m.filename, m.modId]),
+    [
+      ['create-0.5.1.jar', 'create'],
+      ['journeymap-5.10.4.jar', 'journeymap'],
+    ],
+  );
+});
+
+test('marcar un mod como opcional llega al manifiesto y se conserva al actualizarlo', async () => {
+  const { owner, player } = await login();
+  const before = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  const map = before.mods.find((m) => m.modId === 'journeymap');
+  assert.ok(!map.optional);
+
+  assert.equal((await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: player, body: { optional: true } })).status, 401);
+  assert.equal((await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: owner, body: {} })).status, 400);
+  const ok = await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: owner, body: { optional: true } });
+  assert.equal(ok.status, 200);
+
+  const after = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.equal(after.mods.find((m) => m.modId === 'journeymap').optional, true);
+  assert.notEqual(after.versionHash, before.versionHash);
+
+  await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([['journeymap-5.10.5.jar', forgeJar('journeymap', 'v3')]]),
+  });
+  const updated = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  const newest = updated.mods.find((m) => m.modId === 'journeymap');
+  assert.equal(newest.filename, 'journeymap-5.10.5.jar');
+  assert.equal(newest.optional, true);
+});
+
+test('al arrancar se rellena el modId de los mods que no lo tenían', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-backfill-'));
+  const jar = forgeJar('farmersdelight');
+  const hash = sha1(jar);
+  fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'files', `${hash}.jar`), jar);
+  fs.writeFileSync(
+    path.join(dir, 'db.json'),
+    JSON.stringify({ modpacks: { normal: { mods: [{ id: 'm1', filename: 'farmers.jar', sha1: hash, size: jar.length }] } } }),
+  );
+  const s = await startApp(dir);
+  try {
+    const { token } = await (
+      await fetch(`http://127.0.0.1:${s.address().port}/api/auth/offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'Probando' }),
+      })
+    ).json();
+    let mod;
+    for (let i = 0; i < 40 && !(mod && mod.modId); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const res = await fetch(`http://127.0.0.1:${s.address().port}/api/modpacks/normal/manifest`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      mod = (await res.json()).mods[0];
+    }
+    assert.equal(mod.modId, 'farmersdelight');
+  } finally {
+    s.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

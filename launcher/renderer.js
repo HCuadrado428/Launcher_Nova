@@ -421,6 +421,107 @@ $('settingsForm').addEventListener('submit', async (e) => {
   if (state.settings.backendUrl !== previousUrl && document.body.dataset.view === 'main') loadModpacks();
 });
 
+// ---------- Mods del jugador ----------
+
+const modsDialog = $('modsDialog');
+
+// Los avisos normales quedan tapados por la ventana: los errores van dentro.
+function showModsError(message) {
+  $('modsError').textContent = message;
+  $('modsError').hidden = false;
+}
+
+function modRow(filename, size) {
+  const li = document.createElement('li');
+  const name = document.createElement('span');
+  name.className = 'mod-name';
+  name.textContent = filename;
+  const sizeEl = document.createElement('span');
+  sizeEl.className = 'mod-size';
+  sizeEl.textContent = formatSize(size);
+  return { li, name, sizeEl };
+}
+
+async function refreshMods() {
+  let view;
+  try {
+    view = await bridge.getMods(selectedId);
+  } catch (err) {
+    showModsError(errorText(err));
+    return;
+  }
+  $('modsError').hidden = true;
+
+  $('optionalList').replaceChildren(
+    ...view.optional.map((mod) => {
+      const { li, name, sizeEl } = modRow(mod.filename, mod.size);
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = mod.enabled;
+      box.addEventListener('change', async () => {
+        await bridge.setModEnabled(selectedId, mod.key, box.checked);
+        loadModpacks();
+      });
+      label.append(box, name);
+      li.append(label, sizeEl);
+      return li;
+    }),
+  );
+  $('optionalEmpty').hidden = view.optional.length > 0;
+
+  $('ownList').replaceChildren(
+    ...view.own.map((mod) => {
+      const { li, name, sizeEl } = modRow(mod.filename, mod.size);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-btn';
+      remove.textContent = 'Quitar';
+      remove.setAttribute('aria-label', `Quitar ${mod.filename}`);
+      remove.addEventListener('click', async () => {
+        remove.disabled = true;
+        try {
+          await bridge.removeOwnMod(selectedId, mod.filename);
+        } catch (err) {
+          await refreshMods();
+          showModsError(errorText(err));
+          return;
+        }
+        refreshMods();
+      });
+      li.append(name, sizeEl, remove);
+      return li;
+    }),
+  );
+  $('ownEmpty').hidden = view.own.length > 0;
+}
+
+$('modsBtn').addEventListener('click', () => {
+  if (phase !== 'idle') {
+    toast('Cierra antes el juego para cambiar los mods.', 'error');
+    return;
+  }
+  $('optionalList').replaceChildren();
+  $('ownList').replaceChildren();
+  modsDialog.showModal();
+  refreshMods();
+});
+$('modsClose').addEventListener('click', () => modsDialog.close());
+$('modsFolderBtn').addEventListener('click', () => bridge.openFolder(selectedId));
+$('addModsBtn').addEventListener('click', async () => {
+  let message = '';
+  try {
+    const result = await bridge.addOwnMods(selectedId);
+    if (result.skipped.length > 0) {
+      message = `No se han añadido (ya son del modpack o el nombre no vale): ${result.skipped.join(', ')}`;
+    }
+  } catch (err) {
+    message = errorText(err);
+  }
+  await refreshMods();
+  if (message) showModsError(message);
+});
+
 // ---------- Actualización del launcher ----------
 
 bridge.onUpdateReady(({ version }) => {

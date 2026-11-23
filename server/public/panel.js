@@ -319,6 +319,17 @@ function buildPack(section) {
   }
 
   section.querySelector('.mod-list').addEventListener('click', (e) => {
+    const toggle = e.target.closest('button[data-optional]');
+    if (toggle) {
+      toggle.disabled = true;
+      run(() =>
+        api(`/api/panel/modpacks/${packId}/mods/${toggle.dataset.optional}`, {
+          method: 'PATCH',
+          body: { optional: toggle.getAttribute('aria-pressed') !== 'true' },
+        }),
+      );
+      return;
+    }
     const button = e.target.closest('button[data-mod]');
     if (!button) return;
     button.disabled = true;
@@ -358,6 +369,15 @@ function renderPack(section) {
       const size = document.createElement('span');
       size.className = 'mod-size';
       size.textContent = formatSize(mod.size);
+      const optional = document.createElement('button');
+      optional.type = 'button';
+      optional.className = 'pill-btn';
+      optional.dataset.optional = mod.id;
+      optional.setAttribute('aria-pressed', String(Boolean(mod.optional)));
+      optional.textContent = 'Opcional';
+      optional.title = mod.optional
+        ? 'Cada jugador decide en el launcher si lo usa. Pulsa para hacerlo obligatorio.'
+        : 'Lo tienen todos. Pulsa para que cada jugador pueda quitárselo en el launcher.';
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'icon-btn';
@@ -365,7 +385,7 @@ function renderPack(section) {
       del.textContent = '✕';
       del.setAttribute('aria-label', `Quitar ${mod.filename}`);
       del.title = 'Quitar del modpack';
-      li.append(name, size, del);
+      li.append(name, size, optional, del);
       return li;
     }),
   );

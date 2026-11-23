@@ -89,6 +89,7 @@
 
         <div class="launch" id="launchBox">
           <button class="btn btn-primary btn-play" id="playBtn" type="button">JUGAR</button>
+          <button class="btn btn-mods" id="modsBtn" type="button">Mods</button>
           <div class="progress" id="progressBox" hidden>
             <p class="progress-label" id="progressLabel"></p>
             <div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
@@ -150,6 +151,34 @@
           <button class="btn btn-primary" type="submit">Guardar</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- ---------- Mods del jugador ---------- -->
+    <dialog class="settings mods-dialog" id="modsDialog" aria-labelledby="modsTitle">
+      <h2 id="modsTitle">MODS</h2>
+
+      <section>
+        <h3>Opcionales del modpack</h3>
+        <p class="hint">Desmarca los que no quieras. El cambio se aplica la próxima vez que pulses Jugar.</p>
+        <ul class="mods-list" id="optionalList"></ul>
+        <p class="hint" id="optionalEmpty" hidden>Este modpack no tiene mods opcionales.</p>
+      </section>
+
+      <section>
+        <h3>Tus mods</h3>
+        <p class="hint">Los que añadas tú. El modpack no los toca al actualizarse.</p>
+        <ul class="mods-list" id="ownList"></ul>
+        <p class="hint" id="ownEmpty" hidden>No has añadido ninguno.</p>
+        <div class="row">
+          <button class="btn" type="button" id="addModsBtn">Añadir mods...</button>
+          <button class="btn" type="button" id="modsFolderBtn">Abrir carpeta</button>
+        </div>
+      </section>
+
+      <p class="settings-error" id="modsError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn btn-primary" type="button" id="modsClose">Hecho</button>
+      </div>
     </dialog>
 
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
