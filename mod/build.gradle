@@ -17,7 +17,9 @@ minecraft {
 }
 
 dependencies {
-    minecraft 'net.minecraftforge:forge:1.20.1-47.4.10'
+    // Se compila contra 47.2.0 (la build de referencia de 1.20.1); el .jar vale
+    // para cualquier Forge 47.x.
+    minecraft 'net.minecraftforge:forge:1.20.1-47.2.0'
 }
 
 tasks.named('jar', Jar).configure {
