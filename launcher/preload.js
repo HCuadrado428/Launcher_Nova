@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('nova', {
   setModEnabled: (modpackId, key, enabled) => ipcRenderer.invoke('set-mod-enabled', { modpackId, key, enabled }),
   addOwnMods: (id) => ipcRenderer.invoke('add-own-mods', id),
   removeOwnMod: (modpackId, filename) => ipcRenderer.invoke('remove-own-mod', { modpackId, filename }),
+  searchMods: (modpackId, query) => ipcRenderer.invoke('search-mods', { modpackId, query }),
+  installMod: (modpackId, projectId) => ipcRenderer.invoke('install-mod', { modpackId, projectId }),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   exportLogs: (id) => ipcRenderer.invoke('export-logs', id),
   listScreenshots: (id) => ipcRenderer.invoke('list-screenshots', id),

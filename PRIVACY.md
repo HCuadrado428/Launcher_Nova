@@ -13,6 +13,7 @@ Nova Launcher has no analytics, telemetry or advertising. It only contacts other
 | Pressing Play | The Nova Launcher server, Mojang and Forge | Requests to download Java, Minecraft, Forge and the mods. |
 | While the launcher is open | `api.mcsrvstat.us` | The address of the NOVA 2 Minecraft server, to show whether it is online. |
 | Showing your avatar (Microsoft accounts) | `mc-heads.net` | Your Minecraft account ID (public). |
+| Searching for or installing client mods (Mods section) | Modrinth (`api.modrinth.com`, `cdn.modrinth.com`) | What you typed in the search box, the game version, and the download of the mods you choose. |
 | Checking for launcher updates | GitHub | A request for the latest release of this repository. |
 
 The Nova Launcher server keeps a list of the players who have used the launcher, visible only to the server's owner: Minecraft nickname, Minecraft account ID (Microsoft accounts), whether the account is premium, the first and last time the launcher contacted the server, and the launcher version. The owner uses it to decide who may use the admin modpack and to suspend a player's access to the launcher. It keeps no passwords and no session tokens.
@@ -23,7 +24,7 @@ Sign-in tokens are stored only on your computer, encrypted with the operating sy
 
 The launcher cannot work without those connections, so there is no switch to turn them off. To stop all of them, sign out or uninstall the launcher.
 
-Third parties and their policies: [Microsoft](https://privacy.microsoft.com/privacystatement), [Mojang / Minecraft](https://www.minecraft.net/privacy), [GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement), [Railway](https://railway.com/legal/privacy), [mcsrvstat.us](https://mcsrvstat.us/), [mc-heads.net](https://mc-heads.net/).
+Third parties and their policies: [Microsoft](https://privacy.microsoft.com/privacystatement), [Mojang / Minecraft](https://www.minecraft.net/privacy), [GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement), [Modrinth](https://modrinth.com/legal/privacy), [Railway](https://railway.com/legal/privacy), [mcsrvstat.us](https://mcsrvstat.us/), [mc-heads.net](https://mc-heads.net/).
 
 ## Español
 
@@ -36,6 +37,7 @@ Nova Launcher no tiene analíticas, telemetría ni publicidad. Solo se conecta a
 | Al pulsar Jugar | El servidor del Nova Launcher, Mojang y Forge | Peticiones para descargar Java, Minecraft, Forge y los mods. |
 | Con el launcher abierto | `api.mcsrvstat.us` | La dirección del servidor de Minecraft de NOVA 2, para enseñar si está online. |
 | Al enseñar tu avatar (cuentas Microsoft) | `mc-heads.net` | El identificador de tu cuenta de Minecraft (es público). |
+| Al buscar o instalar mods de cliente (sección Mods) | Modrinth (`api.modrinth.com`, `cdn.modrinth.com`) | Lo que escribes en el buscador, la versión del juego y la descarga de los mods que elijas. |
 | Al buscar actualizaciones del launcher | GitHub | Una petición de la última versión de este repositorio. |
 
 El servidor del Nova Launcher guarda una lista de los jugadores que han usado el launcher, que solo ve el dueño del servidor: nick de Minecraft, identificador de la cuenta de Minecraft (cuentas Microsoft), si la cuenta es premium, la primera y la última vez que el launcher contactó con el servidor, y la versión del launcher. El dueño la usa para decidir quién puede usar el modpack de admins y para suspender el acceso de un jugador al launcher. No guarda contraseñas ni tokens de sesión.

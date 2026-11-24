@@ -91,7 +91,11 @@ function setPage(name) {
     if (button.dataset.page === name) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   }
-  if (name === 'mods') refreshMods();
+  if (name === 'mods') {
+    refreshMods();
+    // La primera vez se enseñan los más descargados; luego se conserva lo buscado.
+    if (!searchShown) runModSearch('');
+  }
   if (name === 'shots') refreshShots();
 }
 $('pagesNav').addEventListener('click', (e) => {
@@ -477,7 +481,10 @@ $('packTabs').addEventListener('click', (e) => {
   selectedId = tab.dataset.pack;
   bridge.selectModpack(selectedId);
   renderModpacks();
-  if (page === 'mods') refreshMods();
+  // Los resultados dependen del modpack (qué trae y qué tiene instalado).
+  searchShown = false;
+  $('modSearchResults').replaceChildren();
+  if (page === 'mods') setPage('mods');
   if (page === 'shots') refreshShots();
 });
 
@@ -806,12 +813,12 @@ async function refreshMods() {
 
   $('ownList').replaceChildren(
     ...view.own.map((mod) => {
-      const { li, name, sizeEl } = modRow(mod.filename, mod.size);
+      const { li, name, sizeEl } = modRow(mod.title || mod.filename, mod.size, mod.title ? mod.filename : '');
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'remove-btn';
       remove.textContent = t('mods.remove');
-      remove.setAttribute('aria-label', t('mods.removeLabel', { name: mod.filename }));
+      remove.setAttribute('aria-label', t('mods.removeLabel', { name: mod.title || mod.filename }));
       remove.addEventListener('click', async () => {
         remove.disabled = true;
         let error = '';
@@ -822,6 +829,7 @@ async function refreshMods() {
         }
         await refreshMods();
         if (error) showModsError(error);
+        else if (searchShown) runModSearch(searchQuery);
       });
       li.append(name, sizeEl, remove);
       return li;
@@ -841,6 +849,90 @@ $('addModsBtn').addEventListener('click', async () => {
   }
   await refreshMods();
   if (message) showModsError(message);
+});
+
+// ---------- Buscar mods en Modrinth ----------
+
+let searchShown = false; // ya hay resultados pintados para este modpack
+let searchQuery = '';
+let searchToken = 0;
+
+async function runModSearch(query) {
+  const packId = selectedId;
+  const token = ++searchToken;
+  searchQuery = query;
+  $('modSearchStatus').textContent = t('mods.search.searching');
+  let results;
+  try {
+    results = await bridge.searchMods(packId, query);
+  } catch (err) {
+    if (token !== searchToken) return;
+    $('modSearchStatus').textContent = errorText(err);
+    $('modSearchResults').replaceChildren();
+    return;
+  }
+  if (token !== searchToken || packId !== selectedId) return; // llegó una búsqueda más nueva
+  searchShown = true;
+  $('modSearchStatus').textContent = results.length === 0 ? t('mods.search.empty') : query ? '' : t('mods.search.popular');
+  $('modSearchResults').replaceChildren(
+    ...results.map((mod) => {
+      const li = document.createElement('li');
+      const icon = document.createElement('div');
+      icon.className = 'result-icon';
+      if (mod.iconUrl) {
+        const img = new Image(40, 40);
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        img.src = mod.iconUrl;
+        icon.append(img);
+      }
+      const text = document.createElement('div');
+      text.className = 'result-text';
+      const title = document.createElement('strong');
+      title.textContent = mod.title;
+      const description = document.createElement('span');
+      description.textContent = mod.description;
+      const downloads = document.createElement('small');
+      downloads.textContent = t('mods.search.downloads', { n: mod.downloads.toLocaleString(locale()) });
+      text.append(title, description, downloads);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn';
+      if (mod.inPack || mod.installed) {
+        button.disabled = true;
+        button.textContent = t(mod.inPack ? 'mods.search.inPack' : 'mods.search.installed');
+      } else {
+        button.textContent = t('mods.search.install');
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          button.textContent = t('mods.search.installing');
+          try {
+            const installed = await bridge.installMod(packId, mod.id);
+            button.textContent = t('mods.search.installed');
+            toast(
+              installed.length > 1
+                ? t('mods.search.doneDeps', { title: mod.title, n: installed.length - 1 })
+                : t('mods.search.done', { title: mod.title }),
+            );
+            refreshMods();
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = t('mods.search.install');
+            toast(errorText(err), 'error');
+          }
+        });
+      }
+      li.append(icon, text, button);
+      return li;
+    }),
+  );
+}
+
+$('modSearchForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  runModSearch($('modSearchInput').value.trim());
 });
 
 // ---------- Capturas ----------

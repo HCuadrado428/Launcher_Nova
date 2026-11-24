@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data: https://mc-heads.net nova-shot:; style-src 'self'; script-src 'self'"
+      content="default-src 'self'; img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com nova-shot:; style-src 'self'; script-src 'self'"
     />
     <title>Nova Launcher</title>
     <link rel="stylesheet" href="style.css" />
@@ -168,6 +168,18 @@
             </section>
           </div>
           <p class="settings-error" id="modsError" role="alert" hidden></p>
+
+          <!-- Buscador de mods de cliente en Modrinth (main/modrinth.js). -->
+          <section class="mod-search">
+            <h3 data-i18n="mods.search.title"></h3>
+            <p class="hint" data-i18n="mods.search.hint"></p>
+            <form class="row" id="modSearchForm">
+              <input id="modSearchInput" type="search" maxlength="80" spellcheck="false" data-i18n-attr="placeholder:mods.search.placeholder|aria-label:mods.search.placeholder" />
+              <button class="btn" type="submit" data-i18n="mods.search.button"></button>
+            </form>
+            <p class="hint" id="modSearchStatus" role="status"></p>
+            <ul class="search-results" id="modSearchResults"></ul>
+          </section>
         </div>
 
         <!-- ===== Capturas ===== -->

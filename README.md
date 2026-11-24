@@ -76,7 +76,7 @@ También se puede compilar a mano en Windows con `npm run dist` (el instalador q
 - **Dónde se guarda todo en el PC del jugador:** `%APPDATA%\.novalauncher` (`game/` compartido, `instances/normal` e `instances/admin` con sus mods, mundos y opciones).
 - **Menú del juego:** el mod `novamenu` (carpeta `mod/`) deja el menú principal con «Entrar al Nova 2», Opciones y Salir. Hay que subir su `.jar` al modpack desde el panel. En el modpack admin el launcher lo desactiva solo, así que puede estar en los dos. La IP del servidor está en `launcher/main/constants.js`.
 - **Entrar directo al servidor:** desactivado por defecto; se activa en Ajustes y solo afecta al modpack normal.
-- **Secciones del launcher:** Inicio (jugar, novedades, evento, quién está conectado, tiempo jugado), Mods (opcionales y propios) y Capturas (las de F2, con «Copiar» para pegarlas en Discord).
+- **Secciones del launcher:** Inicio (jugar, novedades, evento, quién está conectado, tiempo jugado), Mods (opcionales, propios y un buscador de mods de cliente de [Modrinth](https://modrinth.com) que instala también lo que cada mod necesita) y Capturas (las de F2, con «Copiar» para pegarlas en Discord).
 - **Personalización:** color de la interfaz, tamaño del texto y «Reducir efectos», en Ajustes.
 - **Idiomas:** el launcher está en español, inglés y portugués (`launcher/i18n.js`). Usa el del sistema la primera vez y se cambia en Ajustes. El panel y los mensajes que devuelve el backend están solo en español.
 - **Si el juego se cierra por un error:** el launcher lee el informe que deja Minecraft y enseña qué ha pasado y qué mod tiene pinta de ser el culpable.

@@ -16,6 +16,7 @@ const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
 const { memoryPlan } = require('./main/memory');
 const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
+const modrinth = require('./main/modrinth');
 const { writeLogsZip, collectLogFiles } = require('./main/logs');
 const i18n = require('./i18n');
 
@@ -295,6 +296,7 @@ async function fetchManifest(modpackId) {
 function ownModFiles(modpackId, manifest) {
   const modsDir = path.join(instanceDir(modpackId), 'mods');
   const packFiles = new Set(manifest.mods.map((m) => m.filename.toLowerCase()));
+  const registry = modrinth.loadRegistry(instanceDir(modpackId));
   let names = [];
   try {
     names = fs.readdirSync(modsDir);
@@ -304,7 +306,12 @@ function ownModFiles(modpackId, manifest) {
   return names
     .filter((name) => safeModFilename(name) && !packFiles.has(name.toLowerCase()))
     .sort((a, b) => a.localeCompare(b))
-    .map((filename) => ({ filename, size: fs.statSync(path.join(modsDir, filename)).size }));
+    .map((filename) => ({
+      filename,
+      // Los instalados desde Modrinth se enseñan con el nombre del mod.
+      title: (registry[filename] && registry[filename].title) || '',
+      size: fs.statSync(path.join(modsDir, filename)).size,
+    }));
 }
 
 // Lo que enseña la ventana «Mods»: los opcionales del modpack (con si están
@@ -375,7 +382,36 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
   // Solo se pueden borrar desde aquí los mods que NO son del modpack.
   if (!ownModFiles(id, manifest).some((m) => m.filename === name)) throw new Error(t('err.notYourMod'));
   fs.rmSync(path.join(instanceDir(id), 'mods', name), { force: true });
+  modrinth.forgetOwnMod(instanceDir(id), name);
   return true;
+});
+
+// Buscar mods de cliente en Modrinth para la versión del modpack. Cada
+// resultado dice si ya está instalado o si ya viene en el modpack.
+ipcMain.handle('search-mods', async (event, { modpackId, query }) => {
+  const id = String(modpackId);
+  const manifest = await fetchManifest(id);
+  const results = await modrinth.searchMods({ query, mcVersion: manifest.mcVersion, loader: manifest.loader });
+  const installed = modrinth.installedProjects(instanceDir(id));
+  const packNames = new Set(manifest.mods.map((m) => modrinth.normalizeName(m.modId)).filter(Boolean));
+  return results.map((result) => ({
+    ...result,
+    installed: Object.hasOwn(installed, result.id),
+    inPack: packNames.has(modrinth.normalizeName(result.slug)),
+  }));
+});
+
+ipcMain.handle('install-mod', async (event, { modpackId, projectId }) => {
+  if (busy || gameProcess) throw new Error(t('mods.closeFirst'));
+  const id = String(modpackId);
+  const manifest = await fetchManifest(id);
+  return modrinth.installMod({
+    projectId: String(projectId),
+    mcVersion: manifest.mcVersion,
+    loader: manifest.loader,
+    manifestMods: manifest.mods,
+    instanceDir: instanceDir(id),
+  });
 });
 
 // ============================================================================
@@ -766,6 +802,7 @@ if (!app.requestSingleInstanceLock()) {
     // Idioma guardado o, la primera vez, el del sistema.
     i18n.setLanguage(loadConfig().language || app.getLocale());
     api.setClientVersion(app.getVersion());
+    modrinth.setUserAgent(app.getVersion());
     registerShotProtocol();
     Menu.setApplicationMenu(null);
     createWindow();
