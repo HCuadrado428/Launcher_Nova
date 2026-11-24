@@ -1,6 +1,6 @@
 {
   "name": "nova-launcher",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Nova Launcher — el launcher del SMP NOVA 2: inicia sesión, se baja el modpack y entra",
   "author": "HCuadrado428",
   "private": true,
@@ -60,5 +60,6 @@
     "@xmcl/task": "4.1.1",
     "@xmcl/unzip": "2.1.2",
     "@xmcl/core": "2.15.1"
-  }
+  },
+  "license": "MIT"
 }

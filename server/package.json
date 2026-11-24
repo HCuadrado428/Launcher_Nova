@@ -19,5 +19,6 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.0",
     "yauzl": "^3.4.0"
-  }
+  },
+  "license": "MIT"
 }

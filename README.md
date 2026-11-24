@@ -77,4 +77,17 @@ cd launcher && npm install && npm test    # sincronización contra el backend re
 
 Backend en local: copia `server/.env.example` a `server/.env`, rellénalo y ejecuta `node --env-file=.env src/index.js` dentro de `server/`.
 
-Las fuentes (Press Start 2P e Inter) tienen licencia SIL Open Font License 1.1; ver `launcher/assets/fonts/`.
+## Licencia
+
+El código es libre bajo la [licencia MIT](LICENSE). Las fuentes (Press Start 2P e Inter) tienen licencia SIL Open Font License 1.1; ver `launcher/assets/fonts/`. El nombre y el logo de NOVA 2 identifican al servidor y no se ceden con la licencia.
+
+## Code signing policy
+
+The Windows installer is built by GitHub Actions from the source code in this repository (`.github/workflows/release.yml`); no binaries are built or uploaded by hand.
+
+Code signing has been requested from the SignPath Foundation. Once approved: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Until then the installer is not signed.
+
+- Committers and reviewers: [HCuadrado428](https://github.com/HCuadrado428)
+- Approvers: [HCuadrado428](https://github.com/HCuadrado428)
+
+Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. What it sends when you sign in, download the game or check the server is listed in the [privacy policy](PRIVACY.md).

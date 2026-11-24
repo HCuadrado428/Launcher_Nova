@@ -40,6 +40,6 @@ jobs:
         run: |
           version="v$(node -p "require('./launcher/package.json').version")"
           gh release view "$version" >/dev/null 2>&1 \
-            || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher." \
+            || gh release create "$version" --target "$GITHUB_SHA" --title "Nova Launcher $version" --notes "Descarga el archivo .exe para instalar el launcher. Code signing policy: https://github.com/HCuadrado428/Launcher_Nova#code-signing-policy" \
             || gh release view "$version" >/dev/null
           gh release upload "$version" mod/build/libs/novamenu-*.jar --clobber
