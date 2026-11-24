@@ -6,7 +6,7 @@ El launcher del SMP **NOVA 2**: el jugador inicia sesión, el launcher se baja J
 
 **[Última versión para Windows · Latest Windows installer](https://github.com/HCuadrado428/Launcher_Nova/releases/latest)**: descarga el archivo `.exe` y ejecútalo.
 
-Code signing has been requested from the SignPath Foundation: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](#code-signing-policy). Until it is approved the installer is not signed, so Windows may warn before running it.
+The installer is not code-signed, so Windows and some browsers may warn before running it. See the [code signing policy](#code-signing-policy) and the [guía de instalación](https://hcuadrado428.github.io/Nova-Web/).
 
 ## Contenido del repositorio
 
@@ -96,7 +96,7 @@ El código es libre bajo la [licencia MIT](LICENSE). Las fuentes (Press Start 2P
 
 The Windows installer is built by GitHub Actions from the source code in this repository (`.github/workflows/release.yml`); no binaries are built or uploaded by hand.
 
-Code signing has been requested from the SignPath Foundation. Once approved: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Until then the installer is not signed.
+The installer is currently **not code-signed**.
 
 - Committers and reviewers: [HCuadrado428](https://github.com/HCuadrado428)
 - Approvers: [HCuadrado428](https://github.com/HCuadrado428)
