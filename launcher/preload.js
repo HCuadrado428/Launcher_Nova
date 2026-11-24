@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld('nova', {
   removeOwnMod: (modpackId, filename) => ipcRenderer.invoke('remove-own-mod', { modpackId, filename }),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   exportLogs: (id) => ipcRenderer.invoke('export-logs', id),
+  listScreenshots: (id) => ipcRenderer.invoke('list-screenshots', id),
+  openScreenshot: (modpackId, name) => ipcRenderer.invoke('open-screenshot', { modpackId, name }),
+  copyScreenshot: (modpackId, name) => ipcRenderer.invoke('copy-screenshot', { modpackId, name }),
+  deleteScreenshot: (modpackId, name) => ipcRenderer.invoke('delete-screenshot', { modpackId, name }),
+  openScreenshotsFolder: (id) => ipcRenderer.invoke('open-screenshots-folder', id),
 
   onPlayProgress: on('play-progress'),
   onGameLog: on('game-log'),

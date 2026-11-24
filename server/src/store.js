@@ -40,6 +40,27 @@ function versionHash(modpack) {
   return crypto.createHash('sha1').update(lines.join('\n')).digest('hex');
 }
 
+// Deja los datos leídos de db.json (o de una copia de seguridad) con todos
+// sus apartados, rellenando lo que falte. Devuelve el mismo objeto.
+function normalize(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Los datos no tienen el formato esperado.');
+  data.admins = Array.isArray(data.admins) ? data.admins : [];
+  data.modpacks = data.modpacks && typeof data.modpacks === 'object' ? data.modpacks : {};
+  for (const id of MODPACK_IDS) {
+    data.modpacks[id] = { ...emptyModpack(id), ...data.modpacks[id], id };
+    if (!Array.isArray(data.modpacks[id].mods)) data.modpacks[id].mods = [];
+  }
+  data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
+  data.event = data.event && data.event.name && data.event.start ? data.event : null;
+  data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
+  // Frases del servidor que el launcher enseña al azar junto al título.
+  data.phrases = Array.isArray(data.phrases) ? data.phrases.filter((p) => typeof p === 'string') : [];
+  // Jugadores que han usado el launcher y accesos suspendidos, por clave de jugador.
+  data.players = data.players && typeof data.players === 'object' ? data.players : {};
+  data.bans = data.bans && typeof data.bans === 'object' ? data.bans : {};
+  return data;
+}
+
 function createStore(dataDir) {
   const dbPath = path.join(dataDir, 'db.json');
   const filesDir = path.join(dataDir, 'files');
@@ -47,24 +68,15 @@ function createStore(dataDir) {
   fs.mkdirSync(filesDir, { recursive: true });
   fs.mkdirSync(tmpDir, { recursive: true });
   // Restos de subidas que se quedaron a medias en un arranque anterior.
-  for (const name of fs.readdirSync(tmpDir)) fs.rmSync(path.join(tmpDir, name), { force: true });
+  for (const name of fs.readdirSync(tmpDir)) fs.rmSync(path.join(tmpDir, name), { force: true, recursive: true });
 
   let data;
   try {
-    data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+    data = normalize(JSON.parse(fs.readFileSync(dbPath, 'utf8')));
   } catch (err) {
     if (err.code !== 'ENOENT') throw new Error(`db.json está corrupto y no se puede leer: ${err.message}`);
-    data = {};
+    data = normalize({});
   }
-  data.admins = Array.isArray(data.admins) ? data.admins : [];
-  data.modpacks = data.modpacks || {};
-  for (const id of MODPACK_IDS) data.modpacks[id] = { ...emptyModpack(id), ...data.modpacks[id], id };
-  data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
-  data.event = data.event && data.event.name && data.event.start ? data.event : null;
-  data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
-  // Jugadores que han usado el launcher y accesos suspendidos, por clave de jugador.
-  data.players = data.players && typeof data.players === 'object' ? data.players : {};
-  data.bans = data.bans && typeof data.bans === 'object' ? data.bans : {};
 
   function save() {
     const tmp = `${dbPath}.${process.pid}.tmp`;
@@ -224,7 +236,30 @@ function createStore(dataDir) {
     },
 
     // Novedades y próximo evento: lo que ve todo el mundo al abrir el launcher.
-    getAnnouncements: () => ({ news: data.news, event: data.event, discordUrl: data.discordUrl }),
+    getAnnouncements: () => ({ news: data.news, event: data.event, discordUrl: data.discordUrl, phrases: data.phrases }),
+
+    setPhrases(phrases) {
+      data.phrases = phrases;
+      save();
+    },
+
+    // ---------- Copia de seguridad ----------
+
+    // Los datos tal cual se guardan en db.json, y los .jar que usan los modpacks.
+    exportData: () => JSON.stringify(data, null, 2),
+    usedFiles: () => [...new Set(MODPACK_IDS.flatMap((id) => data.modpacks[id].mods.map((m) => m.sha1)))],
+
+    // Sustituye todos los datos por los de una copia (ya validada y con sus
+    // .jar puestos en files/) y borra los .jar que dejan de usarse.
+    replaceData(raw) {
+      data = normalize(raw);
+      save();
+      const used = new Set(this.usedFiles());
+      for (const name of fs.readdirSync(filesDir)) {
+        const sha1 = name.replace(/\.jar$/, '');
+        if (!used.has(sha1)) fs.rmSync(path.join(filesDir, name), { force: true });
+      }
+    },
 
     setDiscordUrl(url) {
       data.discordUrl = url;

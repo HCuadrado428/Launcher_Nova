@@ -15,6 +15,9 @@ let modpacks = [];
 let news = null;
 let serverEvent = null;
 let hasDiscord = false;
+let phrases = [];
+let playtime = {};
+let page = 'home'; // home | mods | shots
 let serverStatus; // undefined = aún no se ha consultado
 let selectedId = 'normal';
 let phase = 'idle'; // idle | preparing | running
@@ -63,6 +66,39 @@ function setView(view) {
   document.body.dataset.view = view;
 }
 
+// Minutos jugados en texto: «12 h 05 min» o «40 min».
+function formatPlaytime(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? t('home.hours', { h, m: String(m).padStart(2, '0') }) : t('home.minutes', { m });
+}
+
+// Color y efectos elegidos en Ajustes.
+function applyAppearance() {
+  document.body.dataset.theme = state.settings.theme;
+  document.body.classList.toggle('calm', state.settings.calm);
+}
+
+// ---------- Secciones ----------
+
+const stage = document.querySelector('.stage');
+
+function setPage(name) {
+  page = name;
+  stage.dataset.page = name;
+  for (const button of document.querySelectorAll('.nav-btn')) {
+    if (button.dataset.page === name) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  if (name === 'mods') refreshMods();
+  if (name === 'shots') refreshShots();
+}
+$('pagesNav').addEventListener('click', (e) => {
+  const button = e.target.closest('.nav-btn');
+  if (button) setPage(button.dataset.page);
+});
+
 // ---------- Idioma ----------
 
 // Rellena los textos fijos del HTML (data-i18n / data-i18n-attr).
@@ -84,6 +120,8 @@ function applyLanguage() {
   renderServerStatus();
   if (modpacks.length > 0) renderModpacks();
   renderInfo();
+  if (page === 'mods') refreshMods();
+  if (page === 'shots') refreshShots();
   renderPlayButton();
   renderUpdate();
 }
@@ -196,9 +234,37 @@ function renderServerStatus() {
   }
 }
 
+// Cabezas de quienes están jugando ahora, si el servidor da sus nombres.
+const MAX_ONLINE_SHOWN = 8;
+function renderOnline() {
+  const names = (serverStatus && serverStatus.online && serverStatus.names) || [];
+  const list = $('onlineList');
+  list.replaceChildren(
+    ...names.slice(0, MAX_ONLINE_SHOWN).map((name) => {
+      const li = document.createElement('li');
+      const img = new Image(20, 20);
+      img.alt = '';
+      img.loading = 'lazy';
+      // Si la cabeza no carga, se queda solo el nombre.
+      img.onerror = () => img.remove();
+      img.src = `https://mc-heads.net/avatar/${encodeURIComponent(name)}/40`;
+      li.append(img, name);
+      return li;
+    }),
+  );
+  if (names.length > MAX_ONLINE_SHOWN) {
+    const more = document.createElement('li');
+    more.className = 'online-more';
+    more.textContent = t('online.more', { n: names.length - MAX_ONLINE_SHOWN });
+    list.append(more);
+  }
+  return names.length > 0;
+}
+
 async function refreshServerStatus() {
   serverStatus = await bridge.serverStatus().catch(() => null);
   renderServerStatus();
+  renderInfo();
 }
 setInterval(() => {
   if (document.body.dataset.view === 'main' && !document.hidden) refreshServerStatus();
@@ -253,24 +319,45 @@ function renderEvent() {
 
 function renderInfo() {
   const hasEvent = renderEvent();
+  const hasOnline = renderOnline();
+  $('onlineCard').hidden = !hasOnline;
   const hasNews = Boolean(news && news.text);
   $('newsCard').hidden = !hasNews;
   if (hasNews) {
     $('newsText').textContent = news.text;
     $('newsDate').textContent = formatDate(news.updatedAt) || '';
   }
-  $('infoBox').hidden = !(hasEvent || hasNews) || !$('stageEmpty').hidden;
+  $('infoBox').hidden = !(hasEvent || hasNews || hasOnline);
 }
 setInterval(() => {
-  if (serverEvent && document.body.dataset.view === 'main' && !document.hidden) renderInfo();
+  if (serverEvent && document.body.dataset.view === 'main' && !document.hidden) renderEvent();
 }, 1000);
+
+// ---------- Frase del servidor ----------
+
+// Una frase al azar de las que el dueño escribe en el panel, al lado del
+// título como las amarillas de Minecraft. Al pulsarla sale otra distinta.
+let phraseIndex = -1;
+function renderSplash(next = false) {
+  const splash = $('splash');
+  if (phrases.length === 0) {
+    splash.hidden = true;
+    return;
+  }
+  if (next || phraseIndex < 0 || phraseIndex >= phrases.length) {
+    let pick = Math.floor(Math.random() * phrases.length);
+    if (phrases.length > 1 && pick === phraseIndex) pick = (pick + 1) % phrases.length;
+    phraseIndex = pick;
+  }
+  splash.textContent = phrases[phraseIndex];
+  splash.hidden = false;
+}
+$('splash').addEventListener('click', () => renderSplash(true));
 
 // ---------- Modpacks ----------
 
 function showStageError(title, text) {
-  $('hero').hidden = true;
-  $('launchBox').hidden = true;
-  $('infoBox').hidden = true;
+  stage.dataset.error = 'true';
   $('packTabs').replaceChildren();
   $('stageEmpty').hidden = false;
   $('emptyTitle').textContent = title;
@@ -298,6 +385,7 @@ async function loadModpacks() {
     news = data.news;
     serverEvent = data.event;
     hasDiscord = Boolean(data.hasDiscord);
+    phrases = data.phrases || [];
     $('helpDiscord').hidden = !hasDiscord;
     $('crashDiscord').hidden = !hasDiscord;
     state.account = data.account;
@@ -309,10 +397,10 @@ async function loadModpacks() {
   }
   if (!modpacks.some((m) => m.id === selectedId)) selectedId = 'normal';
   $('stageEmpty').hidden = true;
-  $('hero').hidden = false;
-  $('launchBox').hidden = false;
+  delete stage.dataset.error;
   renderModpacks();
   renderInfo();
+  renderSplash();
 }
 
 function renderModpacks() {
@@ -345,6 +433,16 @@ function renderModpacks() {
   $('packTag').textContent = t(i18n.LANGUAGES.es[`pack.tag.${modpack.id}`] ? `pack.tag.${modpack.id}` : 'pack.tag.other');
   $('packTitle').textContent = modpack.name;
   $('packDesc').textContent = modpack.description;
+  $('modsPack').textContent = modpack.name;
+
+  const played = playtime[modpack.id];
+  if (played && played.seconds >= 60) {
+    const last = formatDate(played.lastPlayed);
+    $('playtime').textContent =
+      t('home.playtime', { time: formatPlaytime(played.seconds) }) + (last ? ` · ${t('home.lastPlayed', { date: last })}` : '');
+  } else {
+    $('playtime').textContent = t('home.neverPlayed');
+  }
 
   const chips = [
     `Minecraft ${modpack.mcVersion}`,
@@ -379,6 +477,8 @@ $('packTabs').addEventListener('click', (e) => {
   selectedId = tab.dataset.pack;
   bridge.selectModpack(selectedId);
   renderModpacks();
+  if (page === 'mods') refreshMods();
+  if (page === 'shots') refreshShots();
 });
 
 $('retryBtn').addEventListener('click', loadModpacks);
@@ -475,9 +575,12 @@ bridge.onGameStarted(() => {
   loadModpacks();
 });
 
-bridge.onGameClosed(({ code, crash, modpackId }) => {
+bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
   phase = 'idle';
   $('progressBox').hidden = true;
+  if (updated) playtime = updated;
+  if (modpacks.length > 0) renderModpacks();
+  if (page === 'shots') refreshShots();
   renderPlayButton();
   if (crash) showCrash(code, crash, modpackId);
 });
@@ -570,6 +673,8 @@ function openSettings() {
   $('memoryAutoCheck').checked = s.memoryAuto;
   $('memoryLow').hidden = !s.lowMemory;
   $('textSizeSelect').value = String(s.textSize);
+  $('themeSelect').value = s.theme;
+  $('calmCheck').checked = s.calm;
   syncMemoryControls(s.memoryGb);
   $('joinServerCheck').checked = s.joinServer;
   $('javaPath').value = s.javaPath;
@@ -620,6 +725,8 @@ $('settingsForm').addEventListener('submit', async (e) => {
       memoryAuto: $('memoryAutoCheck').checked,
       memoryGb: Number($('memoryRange').value),
       textSize: Number($('textSizeSelect').value),
+      theme: $('themeSelect').value,
+      calm: $('calmCheck').checked,
       joinServer: $('joinServerCheck').checked,
       javaPath: $('javaPath').value,
       language: $('languageSelect').value,
@@ -630,6 +737,7 @@ $('settingsForm').addEventListener('submit', async (e) => {
     return;
   }
   dialog.close();
+  applyAppearance();
   if (state.settings.language !== i18n.getLanguage()) {
     i18n.setLanguage(state.settings.language);
     applyLanguage();
@@ -638,8 +746,6 @@ $('settingsForm').addEventListener('submit', async (e) => {
 });
 
 // ---------- Mods del jugador ----------
-
-const modsDialog = $('modsDialog');
 
 function showModsError(message) {
   $('modsError').textContent = message;
@@ -683,6 +789,11 @@ async function refreshMods() {
       box.type = 'checkbox';
       box.checked = mod.enabled;
       box.addEventListener('change', async () => {
+        if (phase !== 'idle') {
+          box.checked = !box.checked;
+          showModsError(t('mods.closeFirst'));
+          return;
+        }
         await bridge.setModEnabled(selectedId, mod.key, box.checked);
         loadModpacks();
       });
@@ -719,17 +830,6 @@ async function refreshMods() {
   $('ownEmpty').hidden = view.own.length > 0;
 }
 
-$('modsBtn').addEventListener('click', () => {
-  if (phase !== 'idle') {
-    toast(t('mods.closeFirst'), 'error');
-    return;
-  }
-  $('optionalList').replaceChildren();
-  $('ownList').replaceChildren();
-  modsDialog.showModal();
-  refreshMods();
-});
-$('modsClose').addEventListener('click', () => modsDialog.close());
 $('modsFolderBtn').addEventListener('click', () => bridge.openFolder(selectedId));
 $('addModsBtn').addEventListener('click', async () => {
   let message = '';
@@ -741,6 +841,99 @@ $('addModsBtn').addEventListener('click', async () => {
   }
   await refreshMods();
   if (message) showModsError(message);
+});
+
+// ---------- Capturas ----------
+
+async function refreshShots() {
+  const packId = selectedId;
+  let shots = [];
+  try {
+    shots = await bridge.listScreenshots(packId);
+  } catch (err) {
+    toast(errorText(err), 'error');
+  }
+  if (packId !== selectedId) return; // se cambió de modpack mientras cargaba
+  $('shotsCount').textContent = shots.length > 0 ? t('shots.count', { n: shots.length }) : '';
+  $('shotsEmpty').hidden = shots.length > 0;
+  $('shotsGrid').replaceChildren(
+    ...shots.map((shot) => {
+      const li = document.createElement('li');
+      li.className = 'shot';
+
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'shot-open';
+      open.setAttribute('aria-label', t('shots.open', { name: shot.name }));
+      const img = new Image();
+      img.alt = '';
+      img.loading = 'lazy';
+      // La fecha de modificación va en la dirección para no enseñar una miniatura antigua.
+      img.src = `nova-shot://thumb/${encodeURIComponent(packId)}/${encodeURIComponent(shot.name)}?v=${shot.mtimeMs}`;
+      open.append(img);
+      open.addEventListener('click', () => bridge.openScreenshot(packId, shot.name).catch(() => refreshShots()));
+
+      const bar = document.createElement('div');
+      bar.className = 'shot-bar';
+      const date = document.createElement('span');
+      date.textContent = new Date(shot.mtimeMs).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = t('shots.copy');
+      copy.addEventListener('click', async () => {
+        try {
+          await bridge.copyScreenshot(packId, shot.name);
+          toast(t('shots.copied'));
+        } catch (err) {
+          toast(errorText(err), 'error');
+          refreshShots();
+        }
+      });
+
+      // Borrar pide un segundo clic; la captura va a la papelera.
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'shot-delete';
+      remove.textContent = t('shots.delete');
+      let armed = null;
+      remove.addEventListener('click', async () => {
+        if (!armed) {
+          remove.textContent = t('shots.confirm');
+          armed = setTimeout(() => {
+            armed = null;
+            remove.textContent = t('shots.delete');
+          }, 3000);
+          return;
+        }
+        clearTimeout(armed);
+        try {
+          await bridge.deleteScreenshot(packId, shot.name);
+          toast(t('shots.deleted'));
+        } catch (err) {
+          toast(errorText(err), 'error');
+        }
+        refreshShots();
+      });
+
+      bar.append(date, copy, remove);
+      li.append(open, bar);
+      return li;
+    }),
+  );
+}
+
+$('shotsRefresh').addEventListener('click', refreshShots);
+$('shotsFolder').addEventListener('click', () => bridge.openScreenshotsFolder(selectedId));
+
+// ---------- Teclado ----------
+
+// Intro en Inicio = Jugar, salvo que se esté escribiendo o haya una ventana abierta.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.repeat || document.body.dataset.view !== 'main' || page !== 'home') return;
+  if (document.querySelector('dialog[open]') || stage.dataset.error) return;
+  if (e.target.closest('input, textarea, select, button, summary, a')) return;
+  if (phase === 'idle') $('playBtn').click();
 });
 
 // ---------- Actualización del launcher ----------
@@ -764,7 +957,10 @@ $('updateBtn').addEventListener('click', () => {
 (async () => {
   state = await bridge.getState();
   i18n.setLanguage(state.settings.language);
+  playtime = state.playtime || {};
+  applyAppearance();
   applyStaticTexts();
+  setPage('home');
   renderServerStatus();
   renderPlayButton();
   selectedId = state.selectedModpack;

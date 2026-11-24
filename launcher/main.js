@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, protocol, nativeImage, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -15,6 +15,7 @@ const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
 const { memoryPlan } = require('./main/memory');
+const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
 const { writeLogsZip, collectLogFiles } = require('./main/logs');
 const i18n = require('./i18n');
 
@@ -44,6 +45,9 @@ function backendUrl() {
   return api.cleanBaseUrl(loadConfig().backendUrl || DEFAULT_BACKEND_URL);
 }
 
+// Colores de la interfaz que puede elegir el jugador (el primero es el de serie).
+const THEMES = ['emerald', 'end', 'nether', 'ocean', 'gold'];
+
 // Tamaños de texto de Ajustes: multiplican la ampliación de la interfaz.
 const TEXT_SCALES = { 1: 1, 2: 1.15, 3: 1.3 };
 
@@ -60,6 +64,8 @@ function settings() {
     joinServer: cfg.joinServer === true,
     language: i18n.getLanguage(),
     textSize: textSize(),
+    theme: THEMES.includes(cfg.theme) ? cfg.theme : THEMES[0],
+    calm: cfg.calm === true,
     backendUrl: backendUrl(),
     backendConfigured: !backendUrl().includes('CAMBIA-ESTO'),
   };
@@ -199,6 +205,7 @@ ipcMain.handle('get-state', () => ({
   version: app.getVersion(),
   serverAddress: SERVER_ADDRESS,
   selectedModpack: loadConfig().selectedModpack || 'normal',
+  playtime: loadConfig().playtime || {},
   gameRunning: Boolean(gameProcess),
 }));
 
@@ -223,6 +230,7 @@ ipcMain.handle('get-modpacks', async () => {
     news: data.news || null,
     event: data.event || null,
     hasDiscord: Boolean(discordUrl),
+    phrases: Array.isArray(data.phrases) ? data.phrases.filter((p) => typeof p === 'string').slice(0, 60) : [],
     modpacks: data.modpacks.map((modpack) => {
       const meta = loadMeta(instanceDir(modpack.id));
       let status = 'update';
@@ -246,10 +254,16 @@ ipcMain.handle('server-status', async () => {
     });
     if (!res.ok) return null;
     const data = await res.json();
+    // Algunos servidores no dan la lista de nombres: entonces solo hay número.
+    const list = data.players && Array.isArray(data.players.list) ? data.players.list : [];
     return {
       online: Boolean(data.online),
       players: data.players && Number.isFinite(data.players.online) ? data.players.online : null,
       max: data.players && Number.isFinite(data.players.max) ? data.players.max : null,
+      names: list
+        .map((player) => (player && typeof player.name === 'string' ? player.name : ''))
+        .filter((name) => /^[A-Za-z0-9_]{1,16}$/.test(name))
+        .slice(0, 24),
     };
   } catch {
     return null;
@@ -365,6 +379,69 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
 });
 
 // ============================================================================
+// CAPTURAS DE PANTALLA
+// ============================================================================
+
+// Las miniaturas se sirven a la ventana por un protocolo propio
+// (nova-shot://thumb/<modpack>/<archivo>): la ventana no puede leer el disco,
+// y así tampoco puede pedir nada que no sea una captura.
+protocol.registerSchemesAsPrivileged([{ scheme: 'nova-shot', privileges: { standard: true, secure: true } }]);
+
+const THUMB_WIDTH = 480;
+const thumbCache = new Map();
+
+function thumbnail(file) {
+  const key = `${file}:${fs.statSync(file).mtimeMs}`;
+  if (!thumbCache.has(key)) {
+    const image = nativeImage.createFromPath(file);
+    if (image.isEmpty()) return null;
+    const { width } = image.getSize();
+    const small = width > THUMB_WIDTH ? image.resize({ width: THUMB_WIDTH, quality: 'good' }) : image;
+    if (thumbCache.size > 300) thumbCache.clear();
+    thumbCache.set(key, small.toJPEG(82));
+  }
+  return thumbCache.get(key);
+}
+
+function registerShotProtocol() {
+  protocol.handle('nova-shot', (request) => {
+    try {
+      const url = new URL(request.url);
+      const [modpackId, name] = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      const file = url.hostname === 'thumb' ? shotPath(instanceDir(modpackId), name) : null;
+      const jpeg = file ? thumbnail(file) : null;
+      if (!jpeg) return new Response(null, { status: 404 });
+      return new Response(jpeg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } });
+    } catch {
+      return new Response(null, { status: 404 });
+    }
+  });
+}
+
+function shotOrThrow(modpackId, name) {
+  const file = shotPath(instanceDir(String(modpackId)), name);
+  if (!file) throw new Error(t('err.shotGone'));
+  return file;
+}
+
+ipcMain.handle('list-screenshots', (event, modpackId) => listScreenshots(instanceDir(String(modpackId))));
+ipcMain.handle('open-screenshot', (event, { modpackId, name }) => shell.openPath(shotOrThrow(modpackId, name)));
+ipcMain.handle('copy-screenshot', (event, { modpackId, name }) => {
+  clipboard.writeImage(nativeImage.createFromPath(shotOrThrow(modpackId, name)));
+  return true;
+});
+// Borrar manda la captura a la papelera: se puede recuperar.
+ipcMain.handle('delete-screenshot', async (event, { modpackId, name }) => {
+  await shell.trashItem(shotOrThrow(modpackId, name));
+  return true;
+});
+ipcMain.handle('open-screenshots-folder', (event, modpackId) => {
+  const dir = screenshotsDir(instanceDir(String(modpackId)));
+  fs.mkdirSync(dir, { recursive: true });
+  return shell.openPath(dir);
+});
+
+// ============================================================================
 // JUGAR
 // ============================================================================
 
@@ -454,7 +531,9 @@ async function play(modpackId) {
         // launcher): se mira si el juego ha dejado un informe.
         const failed = code !== 0 && !stoppedByUser;
         const crash = failed ? analyzeCrash({ instanceDir: dir, since: gameStartedAt - 5000, logLines: gameLog }) : null;
-        send('game-closed', { code, crash, modpackId });
+        const playtime = addPlaytime(loadConfig().playtime, modpackId, gameStartedAt, Date.now());
+        saveConfig({ playtime });
+        send('game-closed', { code, crash, modpackId, playtime });
       },
     },
   );
@@ -493,6 +572,8 @@ ipcMain.handle('save-settings', (event, partial = {}) => {
   const previousTextSize = textSize();
   if (partial.memoryAuto !== undefined) next.memoryAuto = Boolean(partial.memoryAuto);
   if (partial.memoryGb !== undefined) next.memoryGb = Math.round(Number(partial.memoryGb)) || 4;
+  if (partial.theme !== undefined) next.theme = THEMES.includes(partial.theme) ? partial.theme : THEMES[0];
+  if (partial.calm !== undefined) next.calm = Boolean(partial.calm);
   if (partial.textSize !== undefined) next.textSize = TEXT_SCALES[Number(partial.textSize)] ? Number(partial.textSize) : 1;
   if (partial.javaPath !== undefined) next.javaPath = String(partial.javaPath).trim();
   if (partial.joinServer !== undefined) next.joinServer = Boolean(partial.joinServer);
@@ -685,6 +766,7 @@ if (!app.requestSingleInstanceLock()) {
     // Idioma guardado o, la primera vez, el del sistema.
     i18n.setLanguage(loadConfig().language || app.getLocale());
     api.setClientVersion(app.getVersion());
+    registerShotProtocol();
     Menu.setApplicationMenu(null);
     createWindow();
     setupAutoUpdates();

@@ -64,6 +64,14 @@
               </div>
             </form>
           </div>
+          <form class="discord-form" id="phrasesForm">
+            <label for="phrasesText">Frases del servidor</label>
+            <textarea id="phrasesText" rows="4" placeholder="Una por línea: bromas internas, citas del lore, avisos cortos..."></textarea>
+            <div class="form-actions">
+              <span class="hint">El launcher enseña una al azar junto al título, como las frases amarillas de Minecraft. Hasta 60, de 70 letras como mucho.</span>
+              <button class="btn btn-purple" type="submit">Guardar frases</button>
+            </div>
+          </form>
           <form class="discord-form" id="discordForm">
             <label for="discordUrl">Invitación al Discord</label>
             <div class="discord-row">
@@ -100,6 +108,33 @@
             </table>
           </div>
           <p class="empty" id="playersEmpty" hidden>Todavía no ha entrado nadie con el launcher.</p>
+        </section>
+
+        <section class="admins backup" aria-labelledby="backup-title">
+          <h2 id="backup-title">COPIA DE SEGURIDAD</h2>
+          <p class="hint">
+            Un archivo .zip con todo lo del panel: los mods de los dos modpacks, admins, jugadores, suspensiones, novedades y
+            frases. Guárdalo fuera de aquí (tu PC, Drive...) y haz una nueva cada vez que cambies mods.
+          </p>
+          <div class="backup-actions">
+            <button class="btn btn-purple" type="button" id="backupDownload">Descargar copia</button>
+            <label class="btn btn-ghost" for="backupFile">Restaurar una copia...</label>
+            <input class="sr-only" type="file" id="backupFile" accept=".zip" />
+          </div>
+          <div class="backup-confirm" id="backupConfirm" hidden>
+            <p>
+              Vas a sustituir <strong>todo</strong> lo que hay ahora en el panel por el contenido de
+              <strong id="backupName"></strong>. Lo que hayas cambiado después de hacer esa copia se pierde.
+            </p>
+            <div class="backup-actions">
+              <button class="btn btn-ban" type="button" id="backupRestore">Sí, restaurar</button>
+              <button class="btn btn-ghost" type="button" id="backupCancel">Cancelar</button>
+            </div>
+          </div>
+          <div class="upload" id="backupProgress" hidden>
+            <div class="upload-bar"><span></span></div>
+            <p class="upload-text"></p>
+          </div>
         </section>
 
         <section class="admins" aria-labelledby="admins-title">

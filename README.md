@@ -25,6 +25,8 @@ server/     Backend + panel web. Se despliega en Railway.
   - «Copiar los del normal» deja el modpack de admins igual que el normal, para subir encima solo los mods extra;
   - escribes las **novedades** y el **próximo evento** (con cuenta atrás) que ven todos al abrir el launcher;
   - ves la **lista de jugadores** que han abierto el launcher (nick, última vez, versión), haces admin a quien quieras con un botón y **suspendes** el acceso al launcher por un tiempo o sin fecha de fin;
+  - escribes **frases del servidor**, que el launcher enseña al azar junto al título;
+  - descargas una **copia de seguridad** (un `.zip` con los mods y todos los datos) y la restauras si hace falta;
   - añades o quitas **nicks admin**.
 - En el **launcher**, cada vez que alguien pulsa Jugar se compara su carpeta con el modpack del panel y se baja solo lo que ha cambiado (y se borra lo que ya no está). Los mods que el jugador haya metido a mano no se tocan, y los opcionales que haya desactivado no se le vuelven a bajar. Todo eso se gestiona desde el botón **Mods** del launcher.
 - Una cuenta ve el modpack de admins solo si ha iniciado sesión **con Microsoft** y su cuenta está en la lista. El backend lo comprueba preguntando a los servidores de Minecraft, así que un nick offline con el mismo nombre no sirve. Quitar un nick de la lista le corta el acceso al momento.
@@ -74,6 +76,8 @@ También se puede compilar a mano en Windows con `npm run dist` (el instalador q
 - **Dónde se guarda todo en el PC del jugador:** `%APPDATA%\.novalauncher` (`game/` compartido, `instances/normal` e `instances/admin` con sus mods, mundos y opciones).
 - **Menú del juego:** el mod `novamenu` (carpeta `mod/`) deja el menú principal con «Entrar al Nova 2», Opciones y Salir. Hay que subir su `.jar` al modpack desde el panel. En el modpack admin el launcher lo desactiva solo, así que puede estar en los dos. La IP del servidor está en `launcher/main/constants.js`.
 - **Entrar directo al servidor:** desactivado por defecto; se activa en Ajustes y solo afecta al modpack normal.
+- **Secciones del launcher:** Inicio (jugar, novedades, evento, quién está conectado, tiempo jugado), Mods (opcionales y propios) y Capturas (las de F2, con «Copiar» para pegarlas en Discord).
+- **Personalización:** color de la interfaz, tamaño del texto y «Reducir efectos», en Ajustes.
 - **Idiomas:** el launcher está en español, inglés y portugués (`launcher/i18n.js`). Usa el del sistema la primera vez y se cambia en Ajustes. El panel y los mensajes que devuelve el backend están solo en español.
 - **Si el juego se cierra por un error:** el launcher lee el informe que deja Minecraft y enseña qué ha pasado y qué mod tiene pinta de ser el culpable.
 - **Registros:** «Guardar registros» (en Ajustes y en el aviso de error) crea un `.zip` con `latest.log`, `debug.log`, el último informe de error y un resumen del launcher, listo para mandar por Discord.

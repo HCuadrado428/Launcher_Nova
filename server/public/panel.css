@@ -757,3 +757,36 @@ input::placeholder {
   border-color: var(--glitch-red);
   color: #1d0309;
 }
+
+/* ---------- Copia de seguridad y frases ---------- */
+
+.backup-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.backup-actions label.btn {
+  display: inline-block;
+}
+.backup-actions label.btn:has(+ input:focus-visible) {
+  outline: 2px solid var(--glitch-cyan);
+  outline-offset: 2px;
+}
+.backup-confirm {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--glitch-red);
+  border-radius: 8px;
+  background: rgba(255, 46, 99, 0.07);
+  font-size: 0.9rem;
+}
+.backup-confirm p {
+  margin: 0;
+}
+.backup-confirm strong {
+  overflow-wrap: anywhere;
+}
+.discord-form .form-actions .hint {
+  flex: 1;
+}

@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { createApp } = require('../src/app');
-const { forgeJar } = require('../testlib/zip');
+const { forgeJar, makeZip } = require('../testlib/zip');
 
 // Tests de la API contra un servidor real en un puerto libre, con Google,
 // Mojang y Microsoft sustituidos por versiones falsas.
@@ -481,4 +481,87 @@ test('una suspensión caducada deja de aplicarse sola', async () => {
     s.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('la copia de seguridad se descarga y, restaurada, deja el panel como estaba', async () => {
+  const { owner, player } = await login();
+  await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
+  await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([
+      ['create.jar', forgeJar('create', 'copia')],
+      ['jei.jar', forgeJar('jei', 'copia')],
+    ]),
+  });
+  await api('/api/panel/phrases', { method: 'PUT', token: owner, body: { text: ' Señal recuperada \n\nNo mires al Nova\n' } });
+  const before = (await api('/api/panel/state', { token: owner })).data;
+  assert.deepEqual(before.phrases, ['Señal recuperada', 'No mires al Nova']);
+
+  // El enlace de descarga solo lo consigue el dueño y no vale un token cualquiera.
+  assert.equal((await api('/api/panel/backup-link', { method: 'POST', token: player })).status, 401);
+  assert.equal((await api(`/api/panel/backup?t=${player}`)).status, 401);
+  const link = (await api('/api/panel/backup-link', { method: 'POST', token: owner })).data.url;
+  const download = await fetch(base + link);
+  assert.equal(download.status, 200);
+  assert.match(download.headers.get('content-disposition'), /nova-panel-copia-.*\.zip/);
+  const zip = Buffer.from(await download.arrayBuffer());
+
+  // Se estropea todo: mods fuera, frases fuera, un admin de más.
+  await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
+  await api('/api/panel/phrases', { method: 'PUT', token: owner, body: { text: '' } });
+  const createSha = before.modpacks[0].mods.find((m) => m.filename === 'create.jar').sha1;
+  assert.ok(!fs.existsSync(path.join(dataDir, 'files', `${createSha}.jar`)), 'el .jar se había borrado');
+
+  const restoreForm = () => {
+    const form = new FormData();
+    form.append('backup', new Blob([zip]), 'copia.zip');
+    return form;
+  };
+  assert.equal((await api('/api/panel/restore', { method: 'POST', token: player, form: restoreForm() })).status, 401);
+  const restored = await api('/api/panel/restore', { method: 'POST', token: owner, form: restoreForm() });
+  assert.equal(restored.status, 200);
+
+  const after = (await api('/api/panel/state', { token: owner })).data;
+  assert.deepEqual(after.modpacks, before.modpacks);
+  assert.deepEqual(after.admins, before.admins);
+  assert.deepEqual(after.phrases, before.phrases);
+  assert.deepEqual(
+    after.players.map((p) => p.key).sort(),
+    before.players.map((p) => p.key).sort(),
+  );
+  // Y los mods vuelven a poder descargarse.
+  const file = await api(`/api/modpacks/normal/files/${createSha}`, { token: player });
+  assert.equal(file.status, 200);
+  assert.ok(file.data.equals(forgeJar('create', 'copia')));
+});
+
+test('una copia rota o ajena no cambia nada', async () => {
+  const { owner } = await login();
+  const before = (await api('/api/panel/state', { token: owner })).data;
+  const send = async (buffer) => {
+    const form = new FormData();
+    form.append('backup', new Blob([buffer]), 'copia.zip');
+    return api('/api/panel/restore', { method: 'POST', token: owner, form });
+  };
+  const sha = 'a'.repeat(40);
+  const cases = [
+    Buffer.from('esto no es un zip'),
+    makeZip({ 'otra-cosa.txt': 'hola' }),
+    makeZip({ 'db.json': '{ roto' }),
+    // Nombra un mod que no viene en la copia ni está en el servidor.
+    makeZip({ 'db.json': JSON.stringify({ modpacks: { normal: { mods: [{ id: 'x', filename: 'x.jar', sha1: sha, size: 1 }] } } }) }),
+    // Trae el .jar, pero su contenido no coincide con su nombre.
+    makeZip({
+      'db.json': JSON.stringify({ modpacks: { normal: { mods: [{ id: 'x', filename: 'x.jar', sha1: sha, size: 1 }] } } }),
+      [`files/${sha}.jar`]: 'contenido cambiado',
+    }),
+  ];
+  for (const buffer of cases) {
+    const res = await send(buffer);
+    assert.equal(res.status, 400, res.data.error);
+  }
+  const after = (await api('/api/panel/state', { token: owner })).data;
+  assert.deepEqual(after.modpacks, before.modpacks);
+  assert.deepEqual(fs.readdirSync(path.join(dataDir, 'tmp')), [], 'no quedan restos en tmp/');
 });

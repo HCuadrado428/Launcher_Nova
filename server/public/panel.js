@@ -17,7 +17,7 @@ try {
 } catch {
   // Sin sessionStorage (modo privado estricto): habrá que entrar en cada visita.
 }
-let state = { modpacks: [], admins: [], players: [], news: null, event: null };
+let state = { modpacks: [], admins: [], players: [], news: null, event: null, phrases: [] };
 const filters = { normal: '', admin: '' };
 
 // ---------- Utilidades ----------
@@ -620,6 +620,79 @@ document.getElementById('playerFilter').addEventListener('input', (e) => {
   renderPlayers();
 });
 
+// ---------- Copia de seguridad ----------
+
+document.getElementById('backupDownload').addEventListener('click', async () => {
+  try {
+    // El enlace vale dos minutos; al navegar a él, el navegador guarda el .zip.
+    const { url } = await api('/api/panel/backup-link', { method: 'POST' });
+    window.location.assign(url);
+    toast('Descargando la copia. Guárdala en un sitio seguro.');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+const backupFile = document.getElementById('backupFile');
+const backupConfirm = document.getElementById('backupConfirm');
+
+function resetBackupChoice() {
+  backupFile.value = '';
+  backupConfirm.hidden = true;
+}
+
+backupFile.addEventListener('change', () => {
+  const file = backupFile.files[0];
+  if (!file) return;
+  document.getElementById('backupName').textContent = file.name;
+  backupConfirm.hidden = false;
+});
+document.getElementById('backupCancel').addEventListener('click', resetBackupChoice);
+
+document.getElementById('backupRestore').addEventListener('click', () => {
+  const file = backupFile.files[0];
+  if (!file) return;
+  const progress = document.getElementById('backupProgress');
+  const bar = progress.querySelector('.upload-bar span');
+  const text = progress.querySelector('.upload-text');
+  backupConfirm.hidden = true;
+  progress.hidden = false;
+  text.textContent = 'Subiendo la copia...';
+
+  const form = new FormData();
+  form.append('backup', file, file.name);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/panel/restore');
+  xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  xhr.responseType = 'json';
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    bar.style.width = `${(e.loaded / e.total) * 100}%`;
+    if (e.loaded === e.total) text.textContent = 'Comprobando y restaurando...';
+  };
+  const done = (message, type) => {
+    progress.hidden = true;
+    bar.style.width = '0';
+    resetBackupChoice();
+    toast(message, type);
+  };
+  xhr.onload = () => {
+    const data = xhr.response || {};
+    if (xhr.status === 401) {
+      signOut();
+      done('La sesión ha caducado. Vuelve a entrar.', 'error');
+    } else if (xhr.status >= 400) {
+      done(data.error || `El servidor respondió ${xhr.status}.`, 'error');
+    } else {
+      state = data;
+      render();
+      done(`Copia restaurada: ${data.restored.mods} mods.`);
+    }
+  };
+  xhr.onerror = () => done('Se cortó la conexión al subir la copia. No se ha cambiado nada.', 'error');
+  xhr.send(form);
+});
+
 // ---------- Novedades y evento ----------
 
 // Fecha ISO (UTC) -> valor de un <input type="datetime-local"> en hora local.
@@ -642,6 +715,9 @@ function renderAnnouncements() {
     document.getElementById('eventHours').value = state.event ? state.event.hours : 3;
   }
   document.getElementById('eventClear').hidden = !state.event;
+  if (document.activeElement !== document.getElementById('phrasesText')) {
+    document.getElementById('phrasesText').value = (state.phrases || []).join('\n');
+  }
   if (document.activeElement !== document.getElementById('discordUrl')) {
     document.getElementById('discordUrl').value = state.discordUrl || '';
   }
@@ -665,6 +741,13 @@ document.getElementById('eventForm').addEventListener('submit', (e) => {
   const start = new Date(startValue).toISOString();
   const hours = Number(document.getElementById('eventHours').value) || 3;
   run(() => api('/api/panel/event', { method: 'PUT', body: { event: { name, start, hours } } }), 'Evento guardado.');
+});
+
+document.getElementById('phrasesForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = document.getElementById('phrasesText').value;
+  document.activeElement?.blur();
+  run(() => api('/api/panel/phrases', { method: 'PUT', body: { text } }), 'Frases guardadas.');
 });
 
 document.getElementById('discordForm').addEventListener('submit', (e) => {

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data: https://mc-heads.net; style-src 'self'; script-src 'self'"
+      content="default-src 'self'; img-src 'self' data: https://mc-heads.net nova-shot:; style-src 'self'; script-src 'self'"
     />
     <title>Nova Launcher</title>
     <link rel="stylesheet" href="style.css" />
@@ -58,6 +58,13 @@
           <button class="link-btn server-ip" id="copyIpBtn" type="button" data-i18n-attr="title:server.copyIp"></button>
         </div>
 
+        <!-- Secciones del launcher. La que está abierta va en <section class="stage" data-page>. -->
+        <nav class="pages-nav" id="pagesNav">
+          <button class="nav-btn" type="button" data-page="home" data-i18n="nav.home"></button>
+          <button class="nav-btn" type="button" data-page="mods" data-i18n="nav.mods"></button>
+          <button class="nav-btn" type="button" data-page="shots" data-i18n="nav.shots"></button>
+        </nav>
+
         <nav class="side-nav">
           <button class="side-btn" type="button" id="webBtn" data-i18n="side.web"></button>
           <button class="side-btn side-help" type="button" id="helpBtn" data-i18n="help.button"></button>
@@ -67,7 +74,7 @@
         <p class="version" id="versionLabel"></p>
       </aside>
 
-      <section class="stage">
+      <section class="stage" data-page="home">
         <div class="update-banner" id="updateBanner" hidden>
           <span id="updateText"></span>
           <button class="btn" type="button" id="updateBtn" data-i18n="update.button"></button>
@@ -75,11 +82,26 @@
 
         <div class="tabs" id="packTabs" role="tablist"></div>
 
+        <!-- Aviso a pantalla completa cuando no se pueden cargar los modpacks
+             (sin conexión, acceso suspendido...). Tapa todas las secciones. -->
+        <div class="stage-empty" id="stageEmpty" hidden>
+          <p class="stage-empty-title" id="emptyTitle"></p>
+          <p id="emptyText"></p>
+          <button class="btn" type="button" id="retryBtn" data-i18n="common.retry"></button>
+        </div>
+
+        <!-- ===== Inicio ===== -->
+        <div class="page page-home">
         <div class="stage-body">
           <div class="hero" id="hero">
             <span class="hero-tag" id="packTag"></span>
-            <h1 id="packTitle"></h1>
+            <div class="hero-title">
+              <h1 id="packTitle"></h1>
+              <!-- Frase al azar de las que escribe el dueño en el panel; al pulsarla sale otra. -->
+              <button class="splash" id="splash" type="button" hidden></button>
+            </div>
             <p class="hero-desc" id="packDesc"></p>
+            <p class="hero-playtime" id="playtime"></p>
             <p class="hero-state" id="packState"></p>
             <!-- Versiones, tamaño y fecha: al jugador no le hacen falta para jugar. -->
             <details class="pack-details">
@@ -88,18 +110,16 @@
             </details>
           </div>
 
-          <div class="stage-empty" id="stageEmpty" hidden>
-            <p class="stage-empty-title" id="emptyTitle"></p>
-            <p id="emptyText"></p>
-            <button class="btn" type="button" id="retryBtn" data-i18n="common.retry"></button>
-          </div>
-
           <aside class="info" id="infoBox" hidden>
             <div class="info-card info-event" id="eventCard" hidden>
               <span class="info-label" data-i18n="event.next"></span>
               <strong id="eventName"></strong>
               <span class="event-countdown" id="eventCountdown"></span>
               <span class="event-local" id="eventLocal"></span>
+            </div>
+            <div class="info-card" id="onlineCard" hidden>
+              <span class="info-label" data-i18n="online.title"></span>
+              <ul class="online-list" id="onlineList"></ul>
             </div>
             <div class="info-card" id="newsCard" hidden>
               <span class="info-label" data-i18n="news.title"></span>
@@ -111,7 +131,6 @@
 
         <div class="launch" id="launchBox">
           <button class="btn btn-primary btn-play" id="playBtn" type="button"></button>
-          <button class="btn btn-mods" id="modsBtn" type="button" data-i18n="mods.button"></button>
           <div class="progress" id="progressBox" hidden>
             <p class="progress-label"><span class="progress-step" id="progressStep"></span><span id="progressLabel"></span></p>
             <div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
@@ -125,6 +144,45 @@
           <summary data-i18n="console.title"></summary>
           <pre id="consoleLog"></pre>
         </details>
+        </div>
+
+        <!-- ===== Mods ===== -->
+        <div class="page page-mods">
+          <h2 class="page-title"><span data-i18n="mods.title"></span> <small id="modsPack"></small></h2>
+          <div class="mods-columns">
+            <section>
+              <h3 data-i18n="mods.optional"></h3>
+              <p class="hint" data-i18n="mods.optionalHint"></p>
+              <ul class="mods-list" id="optionalList"></ul>
+              <p class="hint" id="optionalEmpty" hidden data-i18n="mods.optionalEmpty"></p>
+            </section>
+            <section>
+              <h3 data-i18n="mods.own"></h3>
+              <p class="hint" data-i18n="mods.ownHint"></p>
+              <ul class="mods-list" id="ownList"></ul>
+              <p class="hint" id="ownEmpty" hidden data-i18n="mods.ownEmpty"></p>
+              <div class="row">
+                <button class="btn" type="button" id="addModsBtn" data-i18n="mods.add"></button>
+                <button class="btn" type="button" id="modsFolderBtn" data-i18n="settings.openFolder"></button>
+              </div>
+            </section>
+          </div>
+          <p class="settings-error" id="modsError" role="alert" hidden></p>
+        </div>
+
+        <!-- ===== Capturas ===== -->
+        <div class="page page-shots">
+          <div class="page-head">
+            <h2 class="page-title"><span data-i18n="shots.title"></span> <small id="shotsCount"></small></h2>
+            <div class="row">
+              <button class="btn" type="button" id="shotsRefresh" data-i18n="shots.refresh"></button>
+              <button class="btn" type="button" id="shotsFolder" data-i18n="settings.openFolder"></button>
+            </div>
+          </div>
+          <p class="hint" data-i18n="shots.hint"></p>
+          <ul class="shots-grid" id="shotsGrid"></ul>
+          <p class="shots-empty" id="shotsEmpty" hidden data-i18n="shots.empty"></p>
+        </div>
       </section>
     </div>
 
@@ -163,14 +221,31 @@
           </div>
         </div>
 
-        <div class="field">
-          <label for="textSizeSelect" data-i18n="settings.textSize"></label>
-          <select id="textSizeSelect">
-            <option value="1" data-i18n="settings.textSize.1"></option>
-            <option value="2" data-i18n="settings.textSize.2"></option>
-            <option value="3" data-i18n="settings.textSize.3"></option>
-          </select>
+        <div class="field-pair field-pair-even">
+          <div class="field">
+            <label for="textSizeSelect" data-i18n="settings.textSize"></label>
+            <select id="textSizeSelect">
+              <option value="1" data-i18n="settings.textSize.1"></option>
+              <option value="2" data-i18n="settings.textSize.2"></option>
+              <option value="3" data-i18n="settings.textSize.3"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="themeSelect" data-i18n="settings.theme"></label>
+            <select id="themeSelect">
+              <option value="emerald" data-i18n="theme.emerald"></option>
+              <option value="end" data-i18n="theme.end"></option>
+              <option value="nether" data-i18n="theme.nether"></option>
+              <option value="ocean" data-i18n="theme.ocean"></option>
+              <option value="gold" data-i18n="theme.gold"></option>
+            </select>
+          </div>
         </div>
+
+        <label class="check">
+          <input type="checkbox" id="calmCheck" />
+          <span data-i18n="settings.calm"></span>
+        </label>
 
         <div class="field" id="packActions">
           <span class="field-title" data-i18n="settings.pack"></span>
@@ -195,34 +270,6 @@
           <button class="btn btn-primary" type="submit" data-i18n="common.save"></button>
         </div>
       </form>
-    </dialog>
-
-    <!-- ---------- Mods del jugador ---------- -->
-    <dialog class="settings mods-dialog" id="modsDialog" aria-labelledby="modsTitle">
-      <h2 id="modsTitle" data-i18n="mods.title"></h2>
-
-      <section>
-        <h3 data-i18n="mods.optional"></h3>
-        <p class="hint" data-i18n="mods.optionalHint"></p>
-        <ul class="mods-list" id="optionalList"></ul>
-        <p class="hint" id="optionalEmpty" hidden data-i18n="mods.optionalEmpty"></p>
-      </section>
-
-      <section>
-        <h3 data-i18n="mods.own"></h3>
-        <p class="hint" data-i18n="mods.ownHint"></p>
-        <ul class="mods-list" id="ownList"></ul>
-        <p class="hint" id="ownEmpty" hidden data-i18n="mods.ownEmpty"></p>
-        <div class="row">
-          <button class="btn" type="button" id="addModsBtn" data-i18n="mods.add"></button>
-          <button class="btn" type="button" id="modsFolderBtn" data-i18n="settings.openFolder"></button>
-        </div>
-      </section>
-
-      <p class="settings-error" id="modsError" role="alert" hidden></p>
-      <div class="dialog-actions">
-        <button class="btn btn-primary" type="button" id="modsClose" data-i18n="common.done"></button>
-      </div>
     </dialog>
 
     <!-- ---------- Ayuda ---------- -->

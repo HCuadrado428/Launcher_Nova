@@ -8,11 +8,15 @@ const { rateLimit } = require('express-rate-limit');
 const { createStore, MODPACK_IDS } = require('./store');
 const { normalizeUuid } = require('./external');
 const { readModId } = require('./jarinfo');
+const { writeBackup, restoreBackup, BackupError } = require('./backup');
 
 const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
 const MAX_NEWS_LENGTH = 1500;
 const MAX_MOD_LABEL = 40;
+const MAX_PHRASES = 60;
+const MAX_PHRASE_LENGTH = 70;
+const MAX_BACKUP_SIZE = 8 * 1024 ** 3;
 const MAX_BAN_HOURS = 24 * 366;
 const MAX_BAN_REASON = 120;
 const MAX_MOD_DESCRIPTION = 140;
@@ -431,6 +435,82 @@ function createApp(options) {
     store.setNews(text.trim());
     res.json(panelState());
   });
+
+  // Frases que el launcher enseña al azar junto al título (bromas del
+  // servidor, citas del lore...). Una por línea.
+  app.put('/api/panel/phrases', requireOwner, (req, res) => {
+    const text = req.body && req.body.text;
+    if (typeof text !== 'string') throw new HttpError(400, 'Faltan las frases.');
+    const phrases = text
+      .split(/\r?\n/)
+      .map((line) => line.trim().slice(0, MAX_PHRASE_LENGTH))
+      .filter(Boolean)
+      .slice(0, MAX_PHRASES);
+    store.setPhrases(phrases);
+    res.json(panelState());
+  });
+
+  // ---------- Copia de seguridad ----------
+
+  // La descarga la hace el navegador navegando a una dirección, y ahí no se
+  // puede mandar la cabecera de sesión: se pide antes un enlace que vale dos
+  // minutos y solo para esto.
+  app.post('/api/panel/backup-link', requireOwner, (req, res) => {
+    res.json({ url: `/api/panel/backup?t=${encodeURIComponent(signToken({ email: owner }, 'backup', '2m'))}` });
+  });
+
+  app.get('/api/panel/backup', async (req, res) => {
+    let session;
+    try {
+      session = jwt.verify(String(req.query.t || ''), jwtSecret, { algorithms: ['HS256'], audience: 'backup' });
+    } catch {
+      throw new HttpError(401, 'El enlace de descarga ha caducado. Vuelve a pulsar «Descargar copia».');
+    }
+    if (session.email !== owner) throw new HttpError(403, 'Esta cuenta no puede usar el panel.');
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="nova-panel-copia-${stamp}.zip"`);
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      await writeBackup(store, res);
+    } catch (err) {
+      // Lo normal es que el navegador haya cancelado la descarga.
+      console.warn('[AVISO] La copia de seguridad no se terminó de enviar:', err.message);
+      res.destroy();
+    }
+  });
+
+  const uploadBackup = multer({
+    storage: multer.diskStorage({
+      destination: store.tmpDir,
+      filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.backup`),
+    }),
+    limits: { fileSize: MAX_BACKUP_SIZE, files: 1 },
+  }).single('backup');
+
+  app.post(
+    '/api/panel/restore',
+    requireOwner,
+    (req, res, next) => {
+      uploadBackup(req, res, (err) => {
+        if (!err) return next();
+        if (req.file) fs.rmSync(req.file.path, { force: true });
+        next(new HttpError(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400, 'No se pudo leer la copia subida.'));
+      });
+    },
+    async (req, res) => {
+      if (!req.file) throw new HttpError(400, 'No has enviado ninguna copia.');
+      try {
+        const result = await restoreBackup(store, req.file.path);
+        res.json({ restored: result, ...panelState() });
+      } catch (err) {
+        if (err instanceof BackupError) throw new HttpError(400, err.message);
+        throw err;
+      } finally {
+        fs.rmSync(req.file.path, { force: true });
+      }
+    },
+  );
 
   // Invitación al Discord: el botón «Abrir Discord» de la ayuda del launcher.
   app.put('/api/panel/discord', requireOwner, (req, res) => {
