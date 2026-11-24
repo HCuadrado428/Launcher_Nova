@@ -2,6 +2,14 @@
 
 El launcher del SMP **NOVA 2**: el jugador inicia sesión, el launcher se baja Java, Forge y los mods, y entra al servidor. Los mods se gestionan desde un panel web al que solo entra la cuenta del servidor.
 
+## Descargar · Download
+
+**[Última versión para Windows · Latest Windows installer](https://github.com/HCuadrado428/Launcher_Nova/releases/latest)**: descarga el archivo `.exe` y ejecútalo.
+
+Code signing has been requested from the SignPath Foundation: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](#code-signing-policy). Until it is approved the installer is not signed, so Windows may warn before running it.
+
+## Contenido del repositorio
+
 ```
 launcher/   App de escritorio (Electron). Lo que se instalan los jugadores.
 mod/        Mod de Forge con el menú principal de NOVA 2. Lo compila GitHub Actions.
