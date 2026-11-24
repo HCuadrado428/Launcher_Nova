@@ -1466,3 +1466,75 @@ body {
   padding: 7px 11px;
   font-size: 12px;
 }
+
+/* ---------- Traer cosas de otro launcher ---------- */
+
+.import-link {
+  width: fit-content;
+  font-size: 13px;
+}
+.import-dialog {
+  width: 560px;
+}
+.import-intro {
+  margin: 0 0 14px;
+}
+.import-intro strong {
+  color: var(--text-main);
+}
+.import-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 170px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-sunken);
+}
+.import-list:empty {
+  display: none;
+}
+.import-list li {
+  border-bottom: 1px solid #27231a;
+}
+.import-list li:last-child {
+  border-bottom: 0;
+}
+.import-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-weight: 400;
+  font-size: 13px;
+}
+.import-list input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--emerald);
+}
+.import-list span {
+  min-width: 0;
+}
+.import-list strong {
+  display: block;
+  font-weight: 600;
+}
+.import-list small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.import-result {
+  margin: 0 0 12px;
+  color: var(--emerald);
+  font-weight: 600;
+  font-size: 13px;
+}
+#importCats {
+  max-height: none;
+}

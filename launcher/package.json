@@ -1,6 +1,6 @@
 {
   "name": "nova-launcher",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Nova Launcher — el launcher del SMP NOVA 2: inicia sesión, se baja el modpack y entra",
   "author": "HCuadrado428",
   "private": true,

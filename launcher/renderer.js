@@ -609,6 +609,149 @@ async function saveLogs(modpackId) {
   }
 }
 
+// ---------- Traer cosas de otro launcher ----------
+
+const importDialog = $('importDialog');
+let importList = []; // instalaciones ofrecidas
+let importFrom = null; // la elegida
+
+function importMessage(error, result = '') {
+  $('importError').textContent = error;
+  $('importError').hidden = !error;
+  $('importResult').textContent = result;
+  $('importResult').hidden = !result;
+}
+
+function renderImportCategories() {
+  const cats = importFrom ? importFrom.categories : [];
+  $('importWhatBox').hidden = cats.length === 0;
+  $('importCats').replaceChildren(
+    ...cats.map((cat) => {
+      const li = document.createElement('li');
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = cat.id;
+      // Los mundos pueden ocupar mucho: se dejan sin marcar para que sea una decisión.
+      box.checked = cat.id !== 'worlds';
+      box.addEventListener('change', updateImportButton);
+      const text = document.createElement('span');
+      text.textContent = `${t(`import.cat.${cat.id}`)} (${cat.count})`;
+      label.append(box, text);
+      li.append(label);
+      return li;
+    }),
+  );
+  $('importWorldsNote').hidden = !(selectedId === 'normal' && cats.some((c) => c.id === 'worlds'));
+  updateImportButton();
+}
+
+function updateImportButton() {
+  $('importRun').disabled = !importFrom || $('importCats').querySelectorAll('input:checked').length === 0;
+}
+
+function renderImportSources() {
+  $('importNone').hidden = importList.length > 0;
+  $('importSources').replaceChildren(
+    ...importList.map((source) => {
+      const li = document.createElement('li');
+      const label = document.createElement('label');
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'importSource';
+      radio.checked = source === importFrom;
+      radio.addEventListener('change', () => {
+        importFrom = source;
+        importMessage('');
+        renderImportCategories();
+      });
+      const text = document.createElement('span');
+      const title = document.createElement('strong');
+      title.textContent =
+        source.launcher === 'Minecraft' && !source.name
+          ? t('import.official')
+          : [source.launcher, source.name].filter(Boolean).join(' · ');
+      const where = document.createElement('small');
+      where.textContent = source.path;
+      text.append(title, where);
+      label.append(radio, text);
+      li.append(label);
+      return li;
+    }),
+  );
+}
+
+async function openImport() {
+  if (phase !== 'idle') {
+    toast(t('play.closeFirst'), 'error');
+    return;
+  }
+  const modpack = modpacks.find((m) => m.id === selectedId);
+  $('importTarget').textContent = modpack ? `→ ${modpack.name}` : '';
+  importList = [];
+  importFrom = null;
+  importMessage('');
+  renderImportSources();
+  renderImportCategories();
+  if (dialog.open) dialog.close();
+  importDialog.showModal();
+  try {
+    importList = await bridge.importSources(selectedId);
+  } catch (err) {
+    importMessage(errorText(err));
+  }
+  // Con una sola instalación encontrada, se da por elegida.
+  if (importList.length === 1) importFrom = importList[0];
+  renderImportSources();
+  renderImportCategories();
+}
+
+for (const button of document.querySelectorAll('[data-open-import]')) button.addEventListener('click', openImport);
+$('settingsImportBtn').addEventListener('click', openImport);
+$('importClose').addEventListener('click', () => importDialog.close());
+
+$('importPick').addEventListener('click', async () => {
+  let picked;
+  try {
+    picked = await bridge.importPick(selectedId);
+  } catch (err) {
+    importMessage(errorText(err));
+    return;
+  }
+  if (!picked) return;
+  if (picked.error) {
+    importMessage(picked.error);
+    return;
+  }
+  importList = [...importList.filter((s) => s.path !== picked.source.path), picked.source];
+  importFrom = picked.source;
+  importMessage('');
+  renderImportSources();
+  renderImportCategories();
+});
+
+$('importRun').addEventListener('click', async () => {
+  const categories = [...$('importCats').querySelectorAll('input:checked')].map((box) => box.value);
+  const button = $('importRun');
+  button.disabled = true;
+  button.textContent = t('import.running');
+  importMessage('');
+  try {
+    const report = await bridge.importRun(selectedId, importFrom.path, categories);
+    const totals = Object.values(report).reduce(
+      (sum, r) => ({ copied: sum.copied + r.copied, skipped: sum.skipped + r.skipped }),
+      { copied: 0, skipped: 0 },
+    );
+    const key = totals.copied === 0 ? 'import.nothing' : totals.skipped > 0 ? 'import.doneSkipped' : 'import.done';
+    importMessage('', t(key, totals));
+    if (page === 'shots') refreshShots();
+  } catch (err) {
+    importMessage(errorText(err));
+  }
+  button.textContent = t('import.run');
+  updateImportButton();
+});
+
 // ---------- Ayuda ----------
 
 const helpDialog = $('helpDialog');

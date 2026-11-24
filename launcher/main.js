@@ -17,6 +17,7 @@ const { analyzeCrash } = require('./main/crash');
 const { memoryPlan } = require('./main/memory');
 const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
 const modrinth = require('./main/modrinth');
+const importer = require('./main/importer');
 const { writeLogsZip, collectLogFiles } = require('./main/logs');
 const i18n = require('./i18n');
 
@@ -412,6 +413,56 @@ ipcMain.handle('install-mod', async (event, { modpackId, projectId }) => {
     manifestMods: manifest.mods,
     instanceDir: instanceDir(id),
   });
+});
+
+// ============================================================================
+// TRAER COSAS DE OTRO LAUNCHER
+// ============================================================================
+
+// Carpetas de origen ofrecidas en esta sesión. Solo se importa de una de
+// ellas: la ventana no puede hacer copiar desde una ruta cualquiera.
+const importSources = new Map();
+
+function importSource(launcher, name, dir, target) {
+  if (path.resolve(dir) === path.resolve(target)) return null;
+  const categories = importer.inspect(dir);
+  const source = { launcher, name, path: dir, categories };
+  importSources.set(dir, source);
+  return source;
+}
+
+ipcMain.handle('import-sources', (event, modpackId) => {
+  const target = instanceDir(String(modpackId));
+  const found = importer.findInstances();
+  // El otro modpack del propio launcher también vale como origen (p. ej.
+  // llevar los ajustes del normal al de admins).
+  for (const other of ['normal', 'admin']) {
+    const dir = importer.resolveGameDir(instanceDir(other));
+    if (dir) found.push({ launcher: 'Nova Launcher', name: other, path: dir });
+  }
+  return found.map((f) => importSource(f.launcher, f.name, f.path, target)).filter((s) => s && s.categories.length > 0);
+});
+
+ipcMain.handle('import-pick', async (event, modpackId) => {
+  const picked = await dialog.showOpenDialog(mainWindow, { title: t('import.pick'), properties: ['openDirectory'] });
+  if (picked.canceled) return null;
+  const dir = importer.resolveGameDir(picked.filePaths[0]);
+  if (!dir) return { error: t('import.notGame') };
+  const source = importSource('', path.basename(picked.filePaths[0]), dir, instanceDir(String(modpackId)));
+  if (!source || source.categories.length === 0) return { error: t('import.empty') };
+  return { source };
+});
+
+ipcMain.handle('import-run', async (event, { modpackId, from, categories }) => {
+  if (busy || gameProcess) throw new Error(t('play.closeFirst'));
+  if (!importSources.has(from)) throw new Error(t('err.importSource'));
+  const wanted = Array.isArray(categories) ? categories.map(String) : [];
+  try {
+    return await importer.importItems({ from, to: instanceDir(String(modpackId)), categories: wanted });
+  } catch (err) {
+    if (err.message === 'missing-source' || err.message === 'same-folder') throw new Error(t('err.importSource'));
+    throw err;
+  }
 });
 
 // ============================================================================

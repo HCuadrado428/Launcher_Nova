@@ -108,6 +108,7 @@
               <summary data-i18n="pack.details"></summary>
               <ul class="chips" id="packChips"></ul>
             </details>
+            <button class="link-btn import-link" type="button" data-open-import data-i18n="import.link"></button>
           </div>
 
           <aside class="info" id="infoBox" hidden>
@@ -265,6 +266,7 @@
             <button class="btn" type="button" id="openFolderBtn" data-i18n="settings.openFolder"></button>
             <button class="btn" type="button" id="repairBtn" data-i18n="settings.repair"></button>
             <button class="btn" type="button" id="logsBtn" data-i18n="settings.logs"></button>
+            <button class="btn" type="button" id="settingsImportBtn" data-i18n="settings.import"></button>
           </div>
         </div>
 
@@ -282,6 +284,34 @@
           <button class="btn btn-primary" type="submit" data-i18n="common.save"></button>
         </div>
       </form>
+    </dialog>
+
+    <!-- ---------- Traer cosas de otro launcher ---------- -->
+    <dialog class="settings import-dialog" id="importDialog" aria-labelledby="importTitle">
+      <h2 id="importTitle" data-i18n="import.title"></h2>
+      <p class="hint import-intro"><span data-i18n="import.hint"></span> <strong id="importTarget"></strong></p>
+
+      <div class="field">
+        <span class="field-title" data-i18n="import.from"></span>
+        <ul class="import-list" id="importSources"></ul>
+        <p class="hint" id="importNone" hidden data-i18n="import.none"></p>
+        <div class="row">
+          <button class="btn" type="button" id="importPick" data-i18n="import.pick"></button>
+        </div>
+      </div>
+
+      <div class="field" id="importWhatBox" hidden>
+        <span class="field-title" data-i18n="import.what"></span>
+        <ul class="import-list" id="importCats"></ul>
+        <p class="hint" id="importWorldsNote" hidden data-i18n="import.worldsNote"></p>
+      </div>
+
+      <p class="settings-error" id="importError" role="alert" hidden></p>
+      <p class="import-result" id="importResult" role="status" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="importClose" data-i18n="common.close"></button>
+        <button class="btn btn-primary" type="button" id="importRun" disabled data-i18n="import.run"></button>
+      </div>
     </dialog>
 
     <!-- ---------- Ayuda ---------- -->
