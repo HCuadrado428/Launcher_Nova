@@ -60,6 +60,7 @@
 
         <nav class="side-nav">
           <button class="side-btn" type="button" id="webBtn" data-i18n="side.web"></button>
+          <button class="side-btn side-help" type="button" id="helpBtn" data-i18n="help.button"></button>
           <button class="side-btn" type="button" data-open-settings data-i18n="common.settings"></button>
           <button class="side-btn" type="button" id="logoutBtn" data-i18n="side.logout"></button>
         </nav>
@@ -79,8 +80,12 @@
             <span class="hero-tag" id="packTag"></span>
             <h1 id="packTitle"></h1>
             <p class="hero-desc" id="packDesc"></p>
-            <ul class="chips" id="packChips"></ul>
             <p class="hero-state" id="packState"></p>
+            <!-- Versiones, tamaño y fecha: al jugador no le hacen falta para jugar. -->
+            <details class="pack-details">
+              <summary data-i18n="pack.details"></summary>
+              <ul class="chips" id="packChips"></ul>
+            </details>
           </div>
 
           <div class="stage-empty" id="stageEmpty" hidden>
@@ -108,10 +113,11 @@
           <button class="btn btn-primary btn-play" id="playBtn" type="button"></button>
           <button class="btn btn-mods" id="modsBtn" type="button" data-i18n="mods.button"></button>
           <div class="progress" id="progressBox" hidden>
-            <p class="progress-label" id="progressLabel"></p>
+            <p class="progress-label"><span class="progress-step" id="progressStep"></span><span id="progressLabel"></span></p>
             <div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
               <span id="progressFill"></span>
             </div>
+            <p class="progress-hint" id="progressHint" hidden data-i18n="play.firstTime"></p>
           </div>
         </div>
 
@@ -129,8 +135,13 @@
 
         <div class="field">
           <label for="memoryRange"><span data-i18n="settings.memory"></span> <output id="memoryOut"></output></label>
+          <label class="check check-inline">
+            <input type="checkbox" id="memoryAutoCheck" />
+            <span data-i18n="settings.memoryAuto"></span>
+          </label>
           <input id="memoryRange" type="range" min="2" step="1" />
           <p class="hint" data-i18n="settings.memoryHint"></p>
+          <p class="hint hint-warn" id="memoryLow" hidden data-i18n="settings.memoryLow"></p>
         </div>
 
         <label class="check">
@@ -150,6 +161,15 @@
             <label for="languageSelect" data-i18n="settings.language"></label>
             <select id="languageSelect"></select>
           </div>
+        </div>
+
+        <div class="field">
+          <label for="textSizeSelect" data-i18n="settings.textSize"></label>
+          <select id="textSizeSelect">
+            <option value="1" data-i18n="settings.textSize.1"></option>
+            <option value="2" data-i18n="settings.textSize.2"></option>
+            <option value="3" data-i18n="settings.textSize.3"></option>
+          </select>
         </div>
 
         <div class="field" id="packActions">
@@ -205,6 +225,19 @@
       </div>
     </dialog>
 
+    <!-- ---------- Ayuda ---------- -->
+    <dialog class="settings help-dialog" id="helpDialog" aria-labelledby="helpTitle">
+      <h2 id="helpTitle" data-i18n="help.title"></h2>
+      <p data-i18n="help.try"></p>
+      <p data-i18n="help.text"></p>
+      <p class="settings-error" id="helpError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="helpClose" data-i18n="common.close"></button>
+        <button class="btn" type="button" id="helpDiscord" hidden data-i18n="help.discord"></button>
+        <button class="btn btn-primary" type="button" id="helpSave" data-i18n="crash.save"></button>
+      </div>
+    </dialog>
+
     <!-- ---------- Cierre por error ---------- -->
     <dialog class="settings crash-dialog" id="crashDialog" aria-labelledby="crashTitle">
       <h2 id="crashTitle" data-i18n="crash.title"></h2>
@@ -225,6 +258,7 @@
       <p class="settings-error" id="crashError" role="alert" hidden></p>
       <div class="dialog-actions">
         <button class="btn" type="button" id="crashClose" data-i18n="common.close"></button>
+        <button class="btn" type="button" id="crashDiscord" hidden data-i18n="help.discord"></button>
         <button class="btn btn-primary" type="button" id="crashSave" data-i18n="crash.save"></button>
       </div>
     </dialog>

@@ -64,6 +64,14 @@
               </div>
             </form>
           </div>
+          <form class="discord-form" id="discordForm">
+            <label for="discordUrl">Invitación al Discord</label>
+            <div class="discord-row">
+              <input id="discordUrl" placeholder="https://discord.gg/..." maxlength="80" />
+              <button class="btn btn-purple" type="submit">Guardar</button>
+            </div>
+            <p class="hint">Es el botón «Abrir Discord» de la ayuda del launcher. Usa una invitación que no caduque.</p>
+          </form>
         </section>
 
         <section class="admins" aria-labelledby="admins-title">
@@ -108,7 +116,7 @@
         <button class="btn btn-ghost copy-btn" type="button" hidden>Copiar los del normal</button>
         <button class="btn btn-danger clear-btn" type="button">Vaciar</button>
       </div>
-      <p class="hint">Marca como <strong>Opcional</strong> los mods de cliente (minimapa, shaders...): cada jugador decide en el launcher si los usa.</p>
+      <p class="hint">Marca como <strong>Opcional</strong> los mods de cliente (minimapa, shaders...): cada jugador decide en el launcher si los usa. Ponles un nombre y una frase para que sepan qué son.</p>
       <ul class="mod-list"></ul>
       <p class="empty" hidden>Sin mods todavía.</p>
 

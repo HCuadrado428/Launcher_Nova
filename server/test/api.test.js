@@ -310,7 +310,11 @@ test('marcar un mod como opcional llega al manifiesto y se conserva al actualiza
 
   assert.equal((await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: player, body: { optional: true } })).status, 401);
   assert.equal((await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: owner, body: {} })).status, 400);
-  const ok = await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: owner, body: { optional: true } });
+  const ok = await api(`/api/panel/modpacks/normal/mods/${map.id}`, {
+    method: 'PATCH',
+    token: owner,
+    body: { optional: true, label: '  Minimapa ', description: 'Muestra el mapa en una esquina.' },
+  });
   assert.equal(ok.status, 200);
 
   const after = (await api('/api/modpacks/normal/manifest', { token: player })).data;
@@ -326,6 +330,8 @@ test('marcar un mod como opcional llega al manifiesto y se conserva al actualiza
   const newest = updated.mods.find((m) => m.modId === 'journeymap');
   assert.equal(newest.filename, 'journeymap-5.10.5.jar');
   assert.equal(newest.optional, true);
+  assert.equal(newest.label, 'Minimapa', 'el nombre que ve el jugador se conserva');
+  assert.equal(newest.description, 'Muestra el mapa en una esquina.');
 });
 
 test('al arrancar se rellena el modId de los mods que no lo tenían', async () => {
@@ -382,6 +388,11 @@ test('novedades y evento: los escribe el dueño y los ve cualquier jugador', asy
     assert.ok(seen.news.updatedAt);
     assert.deepEqual(seen.event, { name: 'Be The Boss', start: '2027-01-10T21:00:00.000Z', hours: 4 });
   }
+
+  assert.equal((await api('/api/panel/discord', { method: 'PUT', token: owner, body: { url: 'https://malo.example/x' } })).status, 400);
+  assert.equal((await api('/api/panel/discord', { method: 'PUT', token: player, body: { url: 'https://discord.gg/nova' } })).status, 401);
+  await api('/api/panel/discord', { method: 'PUT', token: owner, body: { url: 'https://discord.gg/nova2smp' } });
+  assert.equal((await api('/api/modpacks', { token: player })).data.discordUrl, 'https://discord.gg/nova2smp');
 
   await api('/api/panel/event', { method: 'PUT', token: owner, body: { event: null } });
   await api('/api/panel/news', { method: 'PUT', token: owner, body: { text: '' } });

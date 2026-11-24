@@ -14,6 +14,7 @@ let state = null; // respuesta de get-state
 let modpacks = [];
 let news = null;
 let serverEvent = null;
+let hasDiscord = false;
 let serverStatus; // undefined = aún no se ha consultado
 let selectedId = 'normal';
 let phase = 'idle'; // idle | preparing | running
@@ -287,6 +288,9 @@ async function loadModpacks() {
     modpacks = data.modpacks;
     news = data.news;
     serverEvent = data.event;
+    hasDiscord = Boolean(data.hasDiscord);
+    $('helpDiscord').hidden = !hasDiscord;
+    $('crashDiscord').hidden = !hasDiscord;
     state.account = data.account;
     renderAccount();
   } catch (err) {
@@ -397,8 +401,10 @@ function renderPlayButton() {
   }
 }
 
-function setProgress(label, percent) {
+// step/total: «Paso 2 de 5» delante del texto (se omite si no hay paso).
+function setProgress(label, percent, step, total) {
   $('progressBox').hidden = false;
+  $('progressStep').textContent = step ? `${t('prog.step', { n: step, total })} · ` : '';
   $('progressLabel').textContent = label;
   const bar = $('progressBar');
   const known = typeof percent === 'number';
@@ -424,6 +430,9 @@ $('playBtn').addEventListener('click', async () => {
   }
   if (phase !== 'idle') return;
   phase = 'preparing';
+  // La primera instalación es larga: se avisa para que nadie piense que se ha colgado.
+  const current = modpacks.find((m) => m.id === selectedId);
+  $('progressHint').hidden = !(current && current.status === 'not-installed');
   logLines.length = 0;
   $('consoleLog').textContent = '';
   renderPlayButton();
@@ -445,12 +454,13 @@ $('playBtn').addEventListener('click', async () => {
   }
 });
 
-bridge.onPlayProgress(({ label, percent }) => {
-  if (phase === 'preparing') setProgress(label, percent);
+bridge.onPlayProgress(({ label, percent, step, total }) => {
+  if (phase === 'preparing') setProgress(label, percent, step, total);
 });
 
 bridge.onGameStarted(() => {
   phase = 'running';
+  $('progressHint').hidden = true;
   setProgress(t('play.running'), 100);
   renderPlayButton();
   loadModpacks();
@@ -479,6 +489,21 @@ async function saveLogs(modpackId) {
     return errorText(err);
   }
 }
+
+// ---------- Ayuda ----------
+
+const helpDialog = $('helpDialog');
+$('helpBtn').addEventListener('click', () => {
+  $('helpError').hidden = true;
+  helpDialog.showModal();
+});
+$('helpClose').addEventListener('click', () => helpDialog.close());
+$('helpSave').addEventListener('click', async () => {
+  const error = await saveLogs(selectedId);
+  $('helpError').textContent = error;
+  $('helpError').hidden = !error;
+});
+for (const id of ['helpDiscord', 'crashDiscord']) $(id).addEventListener('click', () => bridge.openDiscord());
 
 // ---------- Cierre por error ----------
 
@@ -533,8 +558,10 @@ function showSettingsError(message) {
 function openSettings() {
   const s = state.settings;
   $('memoryRange').max = String(s.maxMemoryGb);
-  $('memoryRange').value = String(s.memoryGb);
-  $('memoryOut').textContent = `${s.memoryGb} GB`;
+  $('memoryAutoCheck').checked = s.memoryAuto;
+  $('memoryLow').hidden = !s.lowMemory;
+  $('textSizeSelect').value = String(s.textSize);
+  syncMemoryControls(s.memoryGb);
   $('joinServerCheck').checked = s.joinServer;
   $('javaPath').value = s.javaPath;
   $('languageSelect').value = i18n.getLanguage();
@@ -546,6 +573,16 @@ function openSettings() {
 
 for (const button of document.querySelectorAll('[data-open-settings]')) button.addEventListener('click', openSettings);
 $('settingsCancel').addEventListener('click', () => dialog.close());
+// En automático el deslizador enseña lo que ha elegido el launcher y no se
+// puede mover; al desmarcar la casilla se queda en ese valor para ajustarlo.
+function syncMemoryControls(valueGb) {
+  const auto = $('memoryAutoCheck').checked;
+  const value = auto ? state.settings.recommendedMemoryGb : valueGb;
+  $('memoryRange').disabled = auto;
+  $('memoryRange').value = String(value);
+  $('memoryOut').textContent = `${value} GB`;
+}
+$('memoryAutoCheck').addEventListener('change', () => syncMemoryControls(Number($('memoryRange').value)));
 $('memoryRange').addEventListener('input', (e) => {
   $('memoryOut').textContent = `${e.target.value} GB`;
 });
@@ -571,7 +608,9 @@ $('settingsForm').addEventListener('submit', async (e) => {
   const previousUrl = state.settings.backendUrl;
   try {
     state.settings = await bridge.saveSettings({
+      memoryAuto: $('memoryAutoCheck').checked,
       memoryGb: Number($('memoryRange').value),
+      textSize: Number($('textSizeSelect').value),
       joinServer: $('joinServerCheck').checked,
       javaPath: $('javaPath').value,
       language: $('languageSelect').value,
@@ -598,11 +637,17 @@ function showModsError(message) {
   $('modsError').hidden = !message;
 }
 
-function modRow(filename, size) {
+// title: lo que se lee como nombre. detail: línea pequeña debajo (opcional).
+function modRow(title, size, detail = '') {
   const li = document.createElement('li');
   const name = document.createElement('span');
   name.className = 'mod-name';
-  name.textContent = filename;
+  name.textContent = title;
+  if (detail) {
+    const small = document.createElement('small');
+    small.textContent = detail;
+    name.append(small);
+  }
   const sizeEl = document.createElement('span');
   sizeEl.className = 'mod-size';
   sizeEl.textContent = formatSize(size);
@@ -621,7 +666,9 @@ async function refreshMods() {
 
   $('optionalList').replaceChildren(
     ...view.optional.map((mod) => {
-      const { li, name, sizeEl } = modRow(mod.filename, mod.size);
+      // Con nombre puesto por el dueño se enseña ese y su descripción; si no,
+      // el nombre del archivo.
+      const { li, name, sizeEl } = modRow(mod.label || mod.filename, mod.size, mod.label ? mod.description : '');
       const label = document.createElement('label');
       const box = document.createElement('input');
       box.type = 'checkbox';

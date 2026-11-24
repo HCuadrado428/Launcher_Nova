@@ -336,6 +336,18 @@ function buildPack(section) {
     run(() => api(`/api/panel/modpacks/${packId}/mods/${button.dataset.mod}`, { method: 'DELETE' }));
   });
 
+  // Nombre y descripción de un opcional: se guardan al salir del campo.
+  section.querySelector('.mod-list').addEventListener('change', (e) => {
+    const input = e.target.closest('input[data-mod-field]');
+    if (!input) return;
+    run(() =>
+      api(`/api/panel/modpacks/${packId}/mods/${input.dataset.modId}`, {
+        method: 'PATCH',
+        body: { [input.dataset.modField]: input.value },
+      }),
+    );
+  });
+
   section.querySelector('.version-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
@@ -386,6 +398,26 @@ function renderPack(section) {
       del.setAttribute('aria-label', `Quitar ${mod.filename}`);
       del.title = 'Quitar del modpack';
       li.append(name, size, optional, del);
+      // Un opcional lleva además el nombre y la descripción que verá el jugador
+      // en el launcher, en vez del nombre del archivo.
+      if (mod.optional) {
+        const extra = document.createElement('div');
+        extra.className = 'mod-extra';
+        for (const [field, placeholder, max] of [
+          ['label', 'Nombre para los jugadores (p. ej. Minimapa)', 40],
+          ['description', 'Para qué sirve, en una frase', 140],
+        ]) {
+          const input = document.createElement('input');
+          input.value = mod[field] || '';
+          input.maxLength = max;
+          input.placeholder = placeholder;
+          input.setAttribute('aria-label', `${placeholder}: ${mod.filename}`);
+          input.dataset.modField = field;
+          input.dataset.modId = mod.id;
+          extra.append(input);
+        }
+        li.append(extra);
+      }
       return li;
     }),
   );
@@ -466,6 +498,9 @@ function renderAnnouncements() {
     document.getElementById('eventHours').value = state.event ? state.event.hours : 3;
   }
   document.getElementById('eventClear').hidden = !state.event;
+  if (document.activeElement !== document.getElementById('discordUrl')) {
+    document.getElementById('discordUrl').value = state.discordUrl || '';
+  }
 }
 
 document.getElementById('newsForm').addEventListener('submit', (e) => {
@@ -486,6 +521,12 @@ document.getElementById('eventForm').addEventListener('submit', (e) => {
   const start = new Date(startValue).toISOString();
   const hours = Number(document.getElementById('eventHours').value) || 3;
   run(() => api('/api/panel/event', { method: 'PUT', body: { event: { name, start, hours } } }), 'Evento guardado.');
+});
+
+document.getElementById('discordForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = document.getElementById('discordUrl').value.trim();
+  run(() => api('/api/panel/discord', { method: 'PUT', body: { url } }), url ? 'Enlace de Discord guardado.' : 'Enlace de Discord quitado.');
 });
 
 document.getElementById('eventClear').addEventListener('click', () => {

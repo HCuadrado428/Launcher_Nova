@@ -13,7 +13,7 @@ server/     Backend + panel web. Se despliega en Railway.
 - Hay **dos modpacks**: `NOVA 2` (para todos) y `NOVA 2 · ADMIN` (solo cuentas admin).
 - El **panel web** es la página principal del backend (`https://tu-backend.up.railway.app/`). Solo deja entrar con Google al correo de `OWNER_EMAIL` (`noovaasmp@gmail.com`). Desde ahí:
   - arrastras los `.jar` a cada modpack, o los quitas. Subir otra versión de un mod sustituye a la anterior aunque el archivo se llame distinto;
-  - marcas como **Opcional** los mods de cliente (minimapa, shaders...): cada jugador decide en el launcher si los usa;
+  - marcas como **Opcional** los mods de cliente (minimapa, shaders...) y les pones un nombre y una frase: cada jugador decide en el launcher si los usa;
   - «Copiar los del normal» deja el modpack de admins igual que el normal, para subir encima solo los mods extra;
   - escribes las **novedades** y el **próximo evento** (con cuenta atrás) que ven todos al abrir el launcher;
   - añades o quitas **nicks admin**.
@@ -58,6 +58,8 @@ También se puede compilar a mano en Windows con `npm run dist` (el instalador q
 
 - **Versión del juego:** Minecraft 1.20.1 con Forge 47.4.10. Se cambia en el panel, en «Versión de Minecraft y Forge» de cada modpack; tiene que coincidir con la del servidor.
 - **Java:** el launcher descarga el Java 17 oficial de Mojang la primera vez. En Ajustes se puede elegir otro.
+- **Memoria:** por defecto la elige el launcher según el equipo (8 GB con 16 o más, 6 con 12, 5 con 8). En Ajustes se puede fijar a mano.
+- **Ayuda para el jugador:** «¿Problemas?» guarda los registros y abre el Discord (la invitación se pone en el panel). El tamaño del texto se cambia en Ajustes.
 - **Dónde se guarda todo en el PC del jugador:** `%APPDATA%\.novalauncher` (`game/` compartido, `instances/normal` e `instances/admin` con sus mods, mundos y opciones).
 - **Menú del juego:** el mod `novamenu` (carpeta `mod/`) deja el menú principal con «Entrar al Nova 2», Opciones y Salir. Hay que subir su `.jar` al modpack desde el panel. En el modpack admin el launcher lo desactiva solo, así que puede estar en los dos. La IP del servidor está en `launcher/main/constants.js`.
 - **Entrar directo al servidor:** desactivado por defecto; se activa en Ajustes y solo afecta al modpack normal.

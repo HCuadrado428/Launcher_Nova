@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('nova', {
   openFolder: (id) => ipcRenderer.invoke('open-folder', id),
   repair: (id) => ipcRenderer.invoke('repair', id),
   openWeb: () => ipcRenderer.invoke('open-web'),
+  openDiscord: () => ipcRenderer.invoke('open-discord'),
   getMods: (id) => ipcRenderer.invoke('get-mods', id),
   setModEnabled: (modpackId, key, enabled) => ipcRenderer.invoke('set-mod-enabled', { modpackId, key, enabled }),
   addOwnMods: (id) => ipcRenderer.invoke('add-own-mods', id),

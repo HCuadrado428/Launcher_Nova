@@ -12,6 +12,9 @@ const { readModId } = require('./jarinfo');
 const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
 const MAX_NEWS_LENGTH = 1500;
+const MAX_MOD_LABEL = 40;
+const MAX_MOD_DESCRIPTION = 140;
+const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
 const SHA1_RE = /^[a-f0-9]{40}$/;
 const NICK_RE = /^[A-Za-z0-9_]{1,16}$/;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,39}$/;
@@ -291,13 +294,20 @@ function createApp(options) {
     },
   );
 
-  // Marca un mod como opcional: en el launcher cada jugador decide si lo usa.
+  // Marca un mod como opcional (cada jugador decide en el launcher si lo usa)
+  // y le pone el nombre y la descripción que verá el jugador.
   app.patch('/api/panel/modpacks/:id/mods/:modId', requireOwner, (req, res) => {
     panelModpack(req);
-    if (typeof (req.body && req.body.optional) !== 'boolean') throw new HttpError(400, 'Falta indicar si es opcional.');
-    if (!store.setModOptional(req.params.id, req.params.modId, req.body.optional)) {
-      throw new HttpError(404, 'Ese mod ya no está.');
+    const body = req.body || {};
+    const fields = {};
+    if (body.optional !== undefined) {
+      if (typeof body.optional !== 'boolean') throw new HttpError(400, 'Falta indicar si es opcional.');
+      fields.optional = body.optional;
     }
+    if (body.label !== undefined) fields.label = String(body.label).trim().slice(0, MAX_MOD_LABEL);
+    if (body.description !== undefined) fields.description = String(body.description).trim().slice(0, MAX_MOD_DESCRIPTION);
+    if (Object.keys(fields).length === 0) throw new HttpError(400, 'No hay nada que cambiar.');
+    if (!store.updateMod(req.params.id, req.params.modId, fields)) throw new HttpError(404, 'Ese mod ya no está.');
     res.json(panelState());
   });
 
@@ -353,6 +363,16 @@ function createApp(options) {
       throw new HttpError(400, `Las novedades no pueden pasar de ${MAX_NEWS_LENGTH} caracteres.`);
     }
     store.setNews(text.trim());
+    res.json(panelState());
+  });
+
+  // Invitación al Discord: el botón «Abrir Discord» de la ayuda del launcher.
+  app.put('/api/panel/discord', requireOwner, (req, res) => {
+    const url = String((req.body && req.body.url) || '').trim();
+    if (url && !DISCORD_URL_RE.test(url)) {
+      throw new HttpError(400, 'El enlace debe ser una invitación de Discord (https://discord.gg/...).');
+    }
+    store.setDiscordUrl(url);
     res.json(panelState());
   });
 

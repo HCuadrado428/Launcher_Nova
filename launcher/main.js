@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -14,6 +14,7 @@ const { ensureForge } = require('./main/forge');
 const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
+const { memoryPlan } = require('./main/memory');
 const { writeLogsZip, collectLogFiles } = require('./main/logs');
 const i18n = require('./i18n');
 
@@ -26,6 +27,9 @@ const MS_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 let mainWindow = null;
 let gameProcess = null;
 let busy = false; // hay una preparación/lanzamiento en marcha
+// Invitación al Discord que da el backend (se comprueba antes de abrirla).
+const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
+let discordUrl = '';
 let stoppedByUser = false; // el jugador ha pulsado «Cerrar juego»
 let gameStartedAt = 0;
 // Salida del juego de la sesión actual, para incluirla al guardar registros.
@@ -40,16 +44,22 @@ function backendUrl() {
   return api.cleanBaseUrl(loadConfig().backendUrl || DEFAULT_BACKEND_URL);
 }
 
+// Tamaños de texto de Ajustes: multiplican la ampliación de la interfaz.
+const TEXT_SCALES = { 1: 1, 2: 1.15, 3: 1.3 };
+
+function textSize() {
+  const size = Number(loadConfig().textSize);
+  return TEXT_SCALES[size] ? size : 1;
+}
+
 function settings() {
   const cfg = loadConfig();
-  const totalGb = Math.floor(os.totalmem() / 1024 ** 3);
-  const maxGb = Math.max(2, Math.min(16, totalGb - 2));
   return {
-    memoryGb: Math.min(maxGb, Math.max(2, Number(cfg.memoryGb) || Math.min(6, maxGb))),
-    maxMemoryGb: maxGb,
+    ...memoryPlan(os.totalmem(), cfg),
     javaPath: cfg.javaPath || '',
     joinServer: cfg.joinServer === true,
     language: i18n.getLanguage(),
+    textSize: textSize(),
     backendUrl: backendUrl(),
     backendConfigured: !backendUrl().includes('CAMBIA-ESTO'),
   };
@@ -196,12 +206,14 @@ ipcMain.handle('get-state', () => ({
 // (sin instalar / hay actualización / al día).
 ipcMain.handle('get-modpacks', async () => {
   const data = await withSession((token) => api.listModpacks(backendUrl(), token));
+  discordUrl = DISCORD_URL_RE.test(data.discordUrl || '') ? data.discordUrl : '';
   const cfg = loadConfig();
   if (cfg.account) saveConfig({ account: { ...cfg.account, player: data.player } });
   return {
     account: publicAccount(loadConfig().account),
     news: data.news || null,
     event: data.event || null,
+    hasDiscord: Boolean(discordUrl),
     modpacks: data.modpacks.map((modpack) => {
       const meta = loadMeta(instanceDir(modpack.id));
       let status = 'update';
@@ -280,7 +292,14 @@ async function modsView(modpackId) {
   return {
     optional: manifest.mods
       .filter((m) => m.optional)
-      .map((m) => ({ key: modKey(m), filename: m.filename, size: m.size, enabled: !off.has(modKey(m)) })),
+      .map((m) => ({
+        key: modKey(m),
+        filename: m.filename,
+        label: m.label || '',
+        description: m.description || '',
+        size: m.size,
+        enabled: !off.has(modKey(m)),
+      })),
     own: ownModFiles(modpackId, manifest),
   };
 }
@@ -340,34 +359,41 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
 // JUGAR
 // ============================================================================
 
+// La preparación se cuenta al jugador en cinco pasos fijos, para que sepa por
+// dónde va aunque alguno (Java, el juego) ya esté hecho y pase al instante.
+const PLAY_STEPS = 5;
+
 async function play(modpackId) {
-  const progress = (label, percent = null) => send('play-progress', { label, percent });
+  const progress = (step, label, percent = null) =>
+    send('play-progress', { step, total: PLAY_STEPS, label, percent });
   const cfg = settings();
   const dir = instanceDir(modpackId);
 
-  progress(t('prog.checkPack'));
+  progress(1, t('prog.checkPack'));
   const manifest = await withSession((token) => api.getManifest(backendUrl(), token, modpackId));
   if (manifest.loader !== 'forge') throw new Error(t('err.onlyForge'));
 
+  progress(2, t('prog.javaReady'));
   const java = await ensureJava({
     runtimeDir: RUNTIME_DIR,
     mcVersion: manifest.mcVersion,
     customPath: cfg.javaPath,
-    onProgress: (p) => progress(p.label, p.percent),
+    onProgress: (p) => progress(2, p.label, p.percent),
   });
   if (java.warning) {
     send('game-log', t('warn.java', { mc: manifest.mcVersion, wanted: java.warning.wanted, found: java.warning.found }));
   }
 
+  progress(3, t('prog.gameReady'));
   const versionId = await ensureForge({
     root: GAME_ROOT,
     mcVersion: manifest.mcVersion,
     forgeVersion: manifest.loaderVersion,
     javaPath: java.javaPath,
-    onProgress: (p) => progress(p.label, p.percent),
+    onProgress: (p) => progress(3, p.label, p.percent),
   });
 
-  progress(t('prog.syncMods'));
+  progress(4, t('prog.syncMods'));
   const result = await syncMods({
     instanceDir: dir,
     manifest,
@@ -377,21 +403,17 @@ async function play(modpackId) {
     onProgress: ({ doneFiles, totalFiles, doneBytes, totalBytes }) => {
       if (totalFiles === 0) return;
       progress(
-        t('prog.mods', {
-          done: doneFiles,
-          total: totalFiles,
-          doneMb: Math.round(doneBytes / 1024 / 1024),
-          totalMb: Math.round(totalBytes / 1024 / 1024),
-        }),
+        4,
+        t('prog.mods', { done: doneFiles, total: totalFiles }),
         totalBytes > 0 ? Math.round((doneBytes / totalBytes) * 100) : Math.round((doneFiles / totalFiles) * 100),
       );
     },
   });
   send('modpack-synced', { id: modpackId, ...result });
 
-  progress(t('prog.msLogin'));
+  progress(5, t('prog.msLogin'));
   const account = await refreshMicrosoft(loadConfig().account);
-  progress(t('prog.starting'));
+  progress(5, t('prog.starting'));
   gameLog = [];
   stoppedByUser = false;
   gameStartedAt = Date.now();
@@ -459,7 +481,10 @@ ipcMain.handle('stop-game', () => {
 
 ipcMain.handle('save-settings', (event, partial = {}) => {
   const next = {};
+  const previousTextSize = textSize();
+  if (partial.memoryAuto !== undefined) next.memoryAuto = Boolean(partial.memoryAuto);
   if (partial.memoryGb !== undefined) next.memoryGb = Math.round(Number(partial.memoryGb)) || 4;
+  if (partial.textSize !== undefined) next.textSize = TEXT_SCALES[Number(partial.textSize)] ? Number(partial.textSize) : 1;
   if (partial.javaPath !== undefined) next.javaPath = String(partial.javaPath).trim();
   if (partial.joinServer !== undefined) next.joinServer = Boolean(partial.joinServer);
   if (partial.language !== undefined) next.language = i18n.setLanguage(partial.language);
@@ -474,6 +499,7 @@ ipcMain.handle('save-settings', (event, partial = {}) => {
     }
   }
   saveConfig(next);
+  if (partial.textSize !== undefined && next.textSize !== previousTextSize) applyTextSize({ resize: true });
   return settings();
 });
 
@@ -500,6 +526,7 @@ ipcMain.handle('repair', (event, modpackId) => {
 });
 
 ipcMain.handle('open-web', () => shell.openExternal(WEB_URL));
+ipcMain.handle('open-discord', () => (discordUrl ? shell.openExternal(discordUrl) : false));
 
 // Guarda en un .zip los registros del modpack, listos para mandar por Discord.
 ipcMain.handle('export-logs', async (event, modpackId) => {
@@ -563,24 +590,52 @@ ipcMain.handle('install-update', () => {
 // dejar el contenido pequeño en una esquina.
 const BASE_WIDTH = 1040;
 const BASE_HEIGHT = 680;
-const MAX_ZOOM = 2.5;
+const MIN_WIDTH = 900;
+const MIN_HEIGHT = 600;
+const MAX_ZOOM = 3;
 
-function zoomFor(width, height) {
-  return Math.max(1, Math.min(width / BASE_WIDTH, height / BASE_HEIGHT, MAX_ZOOM));
+// "scale" es el tamaño de texto elegido en Ajustes: la interfaz se dibuja
+// como si la ventana fuera más pequeña y luego se amplía.
+function zoomFor(width, height, scale = 1) {
+  const fit = Math.max(1, Math.min(width / (BASE_WIDTH * scale), height / (BASE_HEIGHT * scale)));
+  return Math.min(MAX_ZOOM, fit * scale);
 }
 
 function fitZoom() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const [width, height] = mainWindow.getContentSize();
-  mainWindow.webContents.setZoomFactor(zoomFor(width, height));
+  mainWindow.webContents.setZoomFactor(zoomFor(width, height, TEXT_SCALES[textSize()]));
+}
+
+// Con el texto más grande hace falta más ventana para que quepa lo mismo: se
+// sube el tamaño mínimo y, si la ventana se queda corta, se agranda (sin
+// pasarse de la pantalla). Al cambiar el ajuste ("resize") la ventana se pone
+// en el tamaño de ese texto, también hacia abajo: si no, al volver a un texto
+// más pequeño la ventana grande lo ampliaría y no se notaría el cambio.
+function applyTextSize({ resize = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const scale = TEXT_SCALES[textSize()];
+  const { workAreaSize } = screen.getDisplayMatching(mainWindow.getBounds());
+  const fitScreen = (value, limit) => Math.min(Math.round(value * scale), limit);
+  mainWindow.setMinimumSize(fitScreen(MIN_WIDTH, workAreaSize.width), fitScreen(MIN_HEIGHT, workAreaSize.height));
+  if (!mainWindow.isMaximized() && !mainWindow.isFullScreen()) {
+    const [width, height] = mainWindow.getContentSize();
+    const wantWidth = fitScreen(BASE_WIDTH, workAreaSize.width);
+    const wantHeight = fitScreen(BASE_HEIGHT, workAreaSize.height - 40);
+    if (resize) mainWindow.setContentSize(wantWidth, wantHeight);
+    else if (width < wantWidth || height < wantHeight) {
+      mainWindow.setContentSize(Math.max(width, wantWidth), Math.max(height, wantHeight));
+    }
+  }
+  fitZoom();
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: BASE_WIDTH,
     height: BASE_HEIGHT,
-    minWidth: 900,
-    minHeight: 600,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     backgroundColor: '#17150f',
     icon: ICON_PATH,
     show: false,
@@ -593,7 +648,7 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.webContents.on('did-finish-load', fitZoom);
+  mainWindow.webContents.on('did-finish-load', () => applyTextSize());
   for (const event of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) {
     mainWindow.on(event, fitZoom);
   }

@@ -32,7 +32,9 @@ function emptyModpack(id) {
 // versión de Minecraft/Forge. El launcher la compara con la última que
 // sincronizó para saber si hay actualización.
 function versionHash(modpack) {
-  const lines = modpack.mods.map((m) => `${m.sha1}:${m.filename}${m.optional ? ':opcional' : ''}`).sort();
+  const lines = modpack.mods
+    .map((m) => `${m.sha1}:${m.filename}${m.optional ? `:opcional:${m.label || ''}:${m.description || ''}` : ''}`)
+    .sort();
   lines.push(`${modpack.mcVersion}|${modpack.loader}|${modpack.loaderVersion}`);
   return crypto.createHash('sha1').update(lines.join('\n')).digest('hex');
 }
@@ -58,6 +60,7 @@ function createStore(dataDir) {
   for (const id of MODPACK_IDS) data.modpacks[id] = { ...emptyModpack(id), ...data.modpacks[id], id };
   data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
   data.event = data.event && data.event.name && data.event.start ? data.event : null;
+  data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
 
   function save() {
     const tmp = `${dbPath}.${process.pid}.tmp`;
@@ -125,6 +128,9 @@ function createStore(dataDir) {
         size,
         modId,
         optional: replaced.some((m) => m.optional),
+        // El nombre y la descripción que ve el jugador se conservan al actualizar el mod.
+        label: (replaced.find((m) => m.label) || {}).label || '',
+        description: (replaced.find((m) => m.description) || {}).description || '',
         uploadedAt: new Date().toISOString(),
       };
       modpack.mods.push(mod);
@@ -134,11 +140,13 @@ function createStore(dataDir) {
       return { mod, replaced: replaced.map((m) => m.filename) };
     },
 
-    setModOptional(id, modId, optional) {
+    // Cambia cómo ve el jugador un mod: si es opcional y con qué nombre y
+    // descripción sale en el launcher.
+    updateMod(id, modId, fields) {
       const modpack = data.modpacks[id];
       const mod = modpack.mods.find((m) => m.id === modId);
       if (!mod) return false;
-      mod.optional = Boolean(optional);
+      Object.assign(mod, fields);
       touch(modpack);
       save();
       return true;
@@ -212,7 +220,12 @@ function createStore(dataDir) {
     },
 
     // Novedades y próximo evento: lo que ve todo el mundo al abrir el launcher.
-    getAnnouncements: () => ({ news: data.news, event: data.event }),
+    getAnnouncements: () => ({ news: data.news, event: data.event, discordUrl: data.discordUrl }),
+
+    setDiscordUrl(url) {
+      data.discordUrl = url;
+      save();
+    },
 
     setNews(text) {
       data.news = { text, updatedAt: text ? new Date().toISOString() : null };
