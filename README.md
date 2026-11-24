@@ -24,9 +24,12 @@ server/     Backend + panel web. Se despliega en Railway.
   - marcas como **Opcional** los mods de cliente (minimapa, shaders...) y les pones un nombre y una frase: cada jugador decide en el launcher si los usa;
   - «Copiar los del normal» deja el modpack de admins igual que el normal, para subir encima solo los mods extra;
   - escribes las **novedades** y el **próximo evento** (con cuenta atrás) que ven todos al abrir el launcher;
+  - ves la **lista de jugadores** que han abierto el launcher (nick, última vez, versión), haces admin a quien quieras con un botón y **suspendes** el acceso al launcher por un tiempo o sin fecha de fin;
   - añades o quitas **nicks admin**.
 - En el **launcher**, cada vez que alguien pulsa Jugar se compara su carpeta con el modpack del panel y se baja solo lo que ha cambiado (y se borra lo que ya no está). Los mods que el jugador haya metido a mano no se tocan, y los opcionales que haya desactivado no se le vuelven a bajar. Todo eso se gestiona desde el botón **Mods** del launcher.
 - Una cuenta ve el modpack de admins solo si ha iniciado sesión **con Microsoft** y su cuenta está en la lista. El backend lo comprueba preguntando a los servidores de Minecraft, así que un nick offline con el mismo nombre no sirve. Quitar un nick de la lista le corta el acceso al momento.
+
+> Suspender a alguien desde el panel le impide usar el launcher, pero no lo expulsa del servidor de Minecraft: para eso está `/ban` en el servidor. A una cuenta sin premium se la suspende por su nick, así que puede volver con otro.
 
 > El launcher no da `/op` en el servidor de Minecraft: la lista de admins del panel y los ops del servidor son dos listas distintas que mantienes tú.
 

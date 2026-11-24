@@ -205,7 +205,16 @@ ipcMain.handle('get-state', () => ({
 // Lista de modpacks a los que tiene acceso la cuenta, con su estado local
 // (sin instalar / hay actualización / al día).
 ipcMain.handle('get-modpacks', async () => {
-  const data = await withSession((token) => api.listModpacks(backendUrl(), token));
+  let data;
+  try {
+    data = await withSession((token) => api.listModpacks(backendUrl(), token));
+  } catch (err) {
+    // Acceso suspendido desde el panel: la interfaz lo explica con su fecha y motivo.
+    if (err.data && err.data.code === 'banned') {
+      return { banned: { until: err.data.until || null, reason: err.data.reason || '' } };
+    }
+    throw err;
+  }
   discordUrl = DISCORD_URL_RE.test(data.discordUrl || '') ? data.discordUrl : '';
   const cfg = loadConfig();
   if (cfg.account) saveConfig({ account: { ...cfg.account, player: data.player } });
@@ -675,6 +684,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // Idioma guardado o, la primera vez, el del sistema.
     i18n.setLanguage(loadConfig().language || app.getLocale());
+    api.setClientVersion(app.getVersion());
     Menu.setApplicationMenu(null);
     createWindow();
     setupAutoUpdates();

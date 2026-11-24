@@ -400,3 +400,85 @@ test('novedades y evento: los escribe el dueño y los ve cualquier jugador', asy
   assert.equal(cleared.event, null);
   assert.deepEqual(cleared.news, { text: '', updatedAt: null });
 });
+
+test('el panel ve quién usa el launcher, con su versión y si es admin', async () => {
+  const { owner, player } = await login();
+  await fetch(`${base}/api/modpacks`, { headers: { Authorization: `Bearer ${player}`, 'X-Launcher-Version': '1.3.0' } });
+  await api('/api/panel/admins', { method: 'POST', token: owner, body: { nick: 'AdminNova' } });
+
+  assert.equal((await api('/api/panel/state', { token: player })).status, 401);
+  const { players } = (await api('/api/panel/state', { token: owner })).data;
+  const byKey = Object.fromEntries(players.map((p) => [p.key, p]));
+
+  assert.equal(byKey[UUID_PLAYER].name, 'Jugadora');
+  assert.equal(byKey[UUID_PLAYER].premium, true);
+  assert.equal(byKey[UUID_PLAYER].launcherVersion, '1.3.0');
+  assert.equal(byKey[UUID_PLAYER].admin, false);
+  assert.equal(byKey[UUID_ADMIN].admin, true);
+  // La cuenta sin premium con el mismo nick que la admin es otra persona.
+  assert.equal(byKey['offline:adminnova'].premium, false);
+  assert.equal(byKey['offline:adminnova'].admin, false);
+  assert.ok(byKey[UUID_PLAYER].lastSeen >= byKey[UUID_PLAYER].firstSeen);
+});
+
+test('suspender a un jugador le corta el launcher hasta que caduca o se le quita', async () => {
+  const { owner, player, admin } = await login();
+  const banUrl = `/api/panel/players/${UUID_PLAYER}/ban`;
+
+  assert.equal((await api(banUrl, { method: 'PUT', token: player, body: { hours: 1 } })).status, 401);
+  assert.equal((await api('/api/panel/players/no-existe/ban', { method: 'PUT', token: owner, body: { hours: 1 } })).status, 404);
+  assert.equal((await api(banUrl, { method: 'PUT', token: owner, body: { hours: -3 } })).status, 400);
+
+  const banned = await api(banUrl, { method: 'PUT', token: owner, body: { hours: 24, reason: 'Romper la norma 3' } });
+  assert.equal(banned.status, 200);
+  const entry = banned.data.players.find((p) => p.key === UUID_PLAYER);
+  assert.equal(entry.ban.reason, 'Romper la norma 3');
+  assert.ok(new Date(entry.ban.until).getTime() > Date.now() + 23 * 3_600_000);
+
+  // Ni con la sesión que ya tenía, ni abriendo una nueva.
+  const list = await api('/api/modpacks', { token: player });
+  assert.equal(list.status, 403);
+  assert.equal(list.data.code, 'banned');
+  assert.equal(list.data.reason, 'Romper la norma 3');
+  assert.match(list.data.error, /suspendido hasta el .*Motivo: Romper la norma 3/);
+  assert.equal((await api('/api/modpacks/normal/manifest', { token: player })).status, 403);
+  const relogin = await api('/api/auth/microsoft', { method: 'POST', body: { accessToken: 'ms-token-player-00000000000' } });
+  assert.equal(relogin.status, 403);
+  // A los demás no les afecta.
+  assert.equal((await api('/api/modpacks', { token: admin })).status, 200);
+
+  assert.equal((await api(banUrl, { method: 'DELETE', token: owner })).status, 200);
+  assert.equal((await api('/api/modpacks', { token: player })).status, 200);
+  assert.equal((await api(banUrl, { method: 'DELETE', token: owner })).status, 404);
+
+  // Sin duración no tiene fin; a una cuenta sin premium se la suspende por su nick.
+  const offlineUrl = `/api/panel/players/${encodeURIComponent('offline:adminnova')}/ban`;
+  const forever = await api(offlineUrl, { method: 'PUT', token: owner, body: { hours: null } });
+  assert.equal(forever.data.players.find((p) => p.key === 'offline:adminnova').ban.until, null);
+  const blocked = await api('/api/auth/offline', { method: 'POST', body: { username: 'ADMINNOVA' } });
+  assert.equal(blocked.status, 403);
+  await api(offlineUrl, { method: 'DELETE', token: owner });
+});
+
+test('una suspensión caducada deja de aplicarse sola', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-ban-'));
+  fs.writeFileSync(
+    path.join(dir, 'db.json'),
+    JSON.stringify({
+      players: { 'offline:tardona': { name: 'Tardona', uuid: null, premium: false, firstSeen: '2026-01-01T00:00:00.000Z', lastSeen: '2026-01-01T00:00:00.000Z', launcherVersion: '' } },
+      bans: { 'offline:tardona': { until: new Date(Date.now() - 60_000).toISOString(), reason: 'ya pasó', createdAt: '2026-01-01T00:00:00.000Z' } },
+    }),
+  );
+  const s = await startApp(dir);
+  try {
+    const res = await fetch(`http://127.0.0.1:${s.address().port}/api/auth/offline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Tardona' }),
+    });
+    assert.equal(res.status, 200);
+  } finally {
+    s.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

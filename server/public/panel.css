@@ -635,3 +635,125 @@ input::placeholder {
 .discord-row input {
   flex: 1;
 }
+
+/* ---------- Jugadores ---------- */
+
+.players code {
+  font-size: 0.85em;
+  color: var(--text-main);
+}
+.players-tools {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0 0.6rem;
+}
+.players-tools input {
+  flex: 0 1 18rem;
+}
+.players-tools .hint {
+  margin: 0;
+}
+.players-scroll {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-sunken);
+}
+.players-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.players-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-sunken);
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.players-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #27231a;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+.players-table tr:last-child td {
+  border-bottom: 0;
+}
+.players-table small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+.tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid;
+  margin: 0 0.3rem 0.2rem 0;
+}
+.tag-admin {
+  color: var(--end-purple);
+}
+.tag-ban {
+  color: var(--glitch-red);
+}
+.player-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.player-actions > * {
+  margin-left: 0.35rem;
+  vertical-align: top;
+}
+.btn-small {
+  font-size: 0.76rem;
+  padding: 0.3rem 0.6rem;
+}
+.ban-box {
+  display: inline-block;
+  text-align: right;
+}
+.ban-box summary {
+  display: inline-block;
+  list-style: none;
+}
+.ban-box summary::-webkit-details-marker {
+  display: none;
+}
+.ban-box form {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  white-space: normal;
+}
+.ban-box select,
+.ban-box input {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.45rem;
+}
+.ban-box select {
+  font-family: inherit;
+  color: var(--text-main);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.ban-box input {
+  width: 13rem;
+  background: var(--bg-raised);
+}
+.btn-ban {
+  background: var(--glitch-red);
+  border-color: var(--glitch-red);
+  color: #1d0309;
+}

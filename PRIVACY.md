@@ -9,11 +9,13 @@ Nova Launcher has no analytics, telemetry or advertising. It only contacts other
 | When | Who is contacted | What is sent |
 |---|---|---|
 | Signing in with Microsoft | Microsoft, Xbox and Minecraft services | Your Microsoft sign-in, in Microsoft's own window. The launcher never sees your password. |
-| When a session with the launcher server is opened or renewed, and when the launcher lists your modpacks | The Nova Launcher server (`launchernova-production.up.railway.app`) | Microsoft accounts: your Minecraft session token, so the server can ask Minecraft's services who you are. The server does not store it. Non-premium accounts: the nickname you typed. The server answers with which modpacks your account may use. |
+| When a session with the launcher server is opened or renewed, and when the launcher lists your modpacks | The Nova Launcher server (`launchernova-production.up.railway.app`) | Microsoft accounts: your Minecraft session token, so the server can ask Minecraft's services who you are. The server does not store the token. Non-premium accounts: the nickname you typed. The server answers with which modpacks your account may use. |
 | Pressing Play | The Nova Launcher server, Mojang and Forge | Requests to download Java, Minecraft, Forge and the mods. |
 | While the launcher is open | `api.mcsrvstat.us` | The address of the NOVA 2 Minecraft server, to show whether it is online. |
 | Showing your avatar (Microsoft accounts) | `mc-heads.net` | Your Minecraft account ID (public). |
 | Checking for launcher updates | GitHub | A request for the latest release of this repository. |
+
+The Nova Launcher server keeps a list of the players who have used the launcher, visible only to the server's owner: Minecraft nickname, Minecraft account ID (Microsoft accounts), whether the account is premium, the first and last time the launcher contacted the server, and the launcher version. The owner uses it to decide who may use the admin modpack and to suspend a player's access to the launcher. It keeps no passwords and no session tokens.
 
 As with any internet connection, each of those systems sees your IP address.
 
@@ -30,11 +32,13 @@ Nova Launcher no tiene analíticas, telemetría ni publicidad. Solo se conecta a
 | Cuándo | Con quién se conecta | Qué se envía |
 |---|---|---|
 | Al entrar con Microsoft | Servicios de Microsoft, Xbox y Minecraft | Tu inicio de sesión de Microsoft, en la ventana de la propia Microsoft. El launcher nunca ve tu contraseña. |
-| Al abrir o renovar la sesión con el servidor del launcher, y cuando el launcher pide tu lista de modpacks | El servidor del Nova Launcher (`launchernova-production.up.railway.app`) | Cuentas Microsoft: tu token de sesión de Minecraft, para que el servidor pregunte a los servicios de Minecraft quién eres. El servidor no lo guarda. Cuentas sin premium: el nick que escribiste. El servidor responde con los modpacks que puede usar tu cuenta. |
+| Al abrir o renovar la sesión con el servidor del launcher, y cuando el launcher pide tu lista de modpacks | El servidor del Nova Launcher (`launchernova-production.up.railway.app`) | Cuentas Microsoft: tu token de sesión de Minecraft, para que el servidor pregunte a los servicios de Minecraft quién eres. El servidor no guarda el token. Cuentas sin premium: el nick que escribiste. El servidor responde con los modpacks que puede usar tu cuenta. |
 | Al pulsar Jugar | El servidor del Nova Launcher, Mojang y Forge | Peticiones para descargar Java, Minecraft, Forge y los mods. |
 | Con el launcher abierto | `api.mcsrvstat.us` | La dirección del servidor de Minecraft de NOVA 2, para enseñar si está online. |
 | Al enseñar tu avatar (cuentas Microsoft) | `mc-heads.net` | El identificador de tu cuenta de Minecraft (es público). |
 | Al buscar actualizaciones del launcher | GitHub | Una petición de la última versión de este repositorio. |
+
+El servidor del Nova Launcher guarda una lista de los jugadores que han usado el launcher, que solo ve el dueño del servidor: nick de Minecraft, identificador de la cuenta de Minecraft (cuentas Microsoft), si la cuenta es premium, la primera y la última vez que el launcher contactó con el servidor, y la versión del launcher. El dueño la usa para decidir quién puede usar el modpack de admins y para suspender el acceso de un jugador al launcher. No guarda contraseñas ni tokens de sesión.
 
 Como en cualquier conexión a internet, cada uno de esos sistemas ve tu dirección IP.
 

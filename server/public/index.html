@@ -74,10 +74,38 @@
           </form>
         </section>
 
+        <section class="admins players" aria-labelledby="players-title">
+          <h2 id="players-title">JUGADORES</h2>
+          <p class="hint">
+            Quién ha abierto el launcher. Suspender a alguien le impide usar el launcher (no lo expulsa del servidor de
+            Minecraft: eso se hace con <code>/ban</code> en el servidor). A una cuenta sin premium se la suspende por su nick,
+            así que puede volver con otro.
+          </p>
+          <div class="players-tools">
+            <input id="playerFilter" type="search" placeholder="Buscar jugador..." aria-label="Buscar jugador" />
+            <span class="hint" id="playerCount"></span>
+          </div>
+          <div class="players-scroll">
+            <table class="players-table">
+              <thead>
+                <tr>
+                  <th scope="col">Jugador</th>
+                  <th scope="col">Última vez</th>
+                  <th scope="col">Versión</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody id="playerRows"></tbody>
+            </table>
+          </div>
+          <p class="empty" id="playersEmpty" hidden>Todavía no ha entrado nadie con el launcher.</p>
+        </section>
+
         <section class="admins" aria-labelledby="admins-title">
           <h2 id="admins-title">CUENTAS ADMIN</h2>
           <p class="hint">
-            Los nicks de esta lista ven el modpack de admins en el launcher. Tiene que ser una cuenta premium con sesión de
+            También puedes hacer admin a alguien desde la lista de jugadores. Los nicks de esta lista ven el modpack de admins en el launcher. Tiene que ser una cuenta premium con sesión de
             Microsoft: un nick offline no cuenta, aunque se llame igual.
           </p>
           <form class="admin-form" id="adminForm" autocomplete="off">

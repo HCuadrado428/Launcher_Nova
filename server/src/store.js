@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 // atómica (temporal + rename) para que un corte a mitad no lo corrompa.
 
 const MODPACK_IDS = ['normal', 'admin'];
+const PLAYER_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 
 const DEFAULT_MODPACKS = {
   normal: { name: 'NOVA 2', description: 'El modpack del servidor. Para todo el mundo.' },
@@ -61,6 +62,9 @@ function createStore(dataDir) {
   data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
   data.event = data.event && data.event.name && data.event.start ? data.event : null;
   data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
+  // Jugadores que han usado el launcher y accesos suspendidos, por clave de jugador.
+  data.players = data.players && typeof data.players === 'object' ? data.players : {};
+  data.bans = data.bans && typeof data.bans === 'object' ? data.bans : {};
 
   function save() {
     const tmp = `${dbPath}.${process.pid}.tmp`;
@@ -235,6 +239,68 @@ function createStore(dataDir) {
     setEvent(event) {
       data.event = event;
       save();
+    },
+
+    // ---------- Jugadores ----------
+
+    // Apunta que un jugador ha usado el launcher. Para no escribir el archivo
+    // en cada petición, la fecha solo se actualiza si la guardada tiene más
+    // de unos minutos (o si ha cambiado el nick o la versión).
+    touchPlayer(key, { name, uuid, premium, launcherVersion }) {
+      const now = Date.now();
+      const known = data.players[key];
+      const version = launcherVersion || (known && known.launcherVersion) || '';
+      if (
+        known &&
+        known.name === name &&
+        known.launcherVersion === version &&
+        now - new Date(known.lastSeen).getTime() < PLAYER_SEEN_INTERVAL_MS
+      ) {
+        return;
+      }
+      const stamp = new Date(now).toISOString();
+      data.players[key] = {
+        name,
+        uuid: uuid || null,
+        premium: Boolean(premium),
+        firstSeen: known ? known.firstSeen : stamp,
+        lastSeen: stamp,
+        launcherVersion: version,
+      };
+      save();
+    },
+
+    listPlayers() {
+      return Object.entries(data.players)
+        .map(([key, player]) => ({ key, ...player, ban: this.activeBan(key) }))
+        .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
+    },
+
+    hasPlayer: (key) => Object.hasOwn(data.players, key),
+
+    // Suspensión en vigor de ese jugador, o null. Las caducadas se borran solas.
+    activeBan(key) {
+      const ban = data.bans[key];
+      if (!ban) return null;
+      if (ban.until && new Date(ban.until).getTime() <= Date.now()) {
+        delete data.bans[key];
+        save();
+        return null;
+      }
+      return ban;
+    },
+
+    // until: fecha ISO de fin, o null si no tiene fin.
+    setBan(key, { until, reason }) {
+      data.bans[key] = { until, reason, createdAt: new Date().toISOString() };
+      save();
+    },
+
+    removeBan(key) {
+      if (!data.bans[key]) return false;
+      delete data.bans[key];
+      save();
+      return true;
     },
 
     isAdminUuid: (uuid) => Boolean(uuid) && data.admins.some((a) => a.uuid === uuid),

@@ -10,10 +10,25 @@ const API_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 
 class ApiError extends Error {
-  constructor(status, message) {
+  // data: el cuerpo JSON del error (p. ej. { code: 'banned', until, reason }).
+  constructor(status, message, data = null) {
     super(message);
     this.status = status;
+    this.data = data;
   }
+}
+
+// Versión del launcher: el backend la enseña en la lista de jugadores del panel.
+let clientVersion = '';
+function setClientVersion(version) {
+  clientVersion = String(version || '');
+}
+
+function baseHeaders(token) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (clientVersion) headers['X-Launcher-Version'] = clientVersion;
+  return headers;
 }
 
 function cleanBaseUrl(url) {
@@ -21,8 +36,7 @@ function cleanBaseUrl(url) {
 }
 
 async function request(baseUrl, pathname, { method = 'GET', token, body } = {}) {
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers = baseHeaders(token);
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res;
   try {
@@ -36,7 +50,7 @@ async function request(baseUrl, pathname, { method = 'GET', token, body } = {}) 
     throw new ApiError(0, t('err.connect'));
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, (data && data.error) || t('err.server', { status: res.status }));
+  if (!res.ok) throw new ApiError(res.status, (data && data.error) || t('err.server', { status: res.status }), data);
   if (!data) throw new ApiError(res.status, t('err.unexpected'));
   return data;
 }
@@ -45,7 +59,7 @@ async function downloadFile(baseUrl, pathname, token, destPath) {
   let res;
   try {
     res = await fetch(`${cleanBaseUrl(baseUrl)}${pathname}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: baseHeaders(token),
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
   } catch {
@@ -61,6 +75,7 @@ async function downloadFile(baseUrl, pathname, token, destPath) {
 module.exports = {
   ApiError,
   cleanBaseUrl,
+  setClientVersion,
   loginMicrosoft: (baseUrl, accessToken) =>
     request(baseUrl, '/api/auth/microsoft', { method: 'POST', body: { accessToken } }),
   loginOffline: (baseUrl, username) => request(baseUrl, '/api/auth/offline', { method: 'POST', body: { username } }),

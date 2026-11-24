@@ -17,7 +17,7 @@ try {
 } catch {
   // Sin sessionStorage (modo privado estricto): habrá que entrar en cada visita.
 }
-let state = { modpacks: [], admins: [], news: null, event: null };
+let state = { modpacks: [], admins: [], players: [], news: null, event: null };
 const filters = { normal: '', admin: '' };
 
 // ---------- Utilidades ----------
@@ -476,6 +476,150 @@ document.getElementById('adminForm').addEventListener('submit', async (e) => {
   if (ok) input.value = '';
 });
 
+// ---------- Jugadores ----------
+
+const BAN_DURATIONS = [
+  ['1', '1 hora'],
+  ['24', '1 día'],
+  ['72', '3 días'],
+  ['168', '7 días'],
+  ['720', '30 días'],
+  ['', 'Sin fecha de fin'],
+];
+let playerFilter = '';
+
+function playerUrl(player, suffix) {
+  return `/api/panel/players/${encodeURIComponent(player.key)}${suffix}`;
+}
+
+function smallButton(text, className = 'btn btn-ghost btn-small') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = text;
+  return button;
+}
+
+function playerRow(player) {
+  const row = document.createElement('tr');
+  const cell = (...children) => {
+    const td = document.createElement('td');
+    td.append(...children);
+    row.append(td);
+    return td;
+  };
+
+  const name = document.createElement('strong');
+  name.textContent = player.name;
+  const type = document.createElement('small');
+  type.textContent = player.premium ? 'Cuenta Microsoft' : 'Sin premium';
+  cell(name, type);
+  cell(formatDate(player.lastSeen));
+  cell(player.launcherVersion ? `v${player.launcherVersion}` : '—');
+
+  const status = cell();
+  if (player.admin) {
+    const badge = document.createElement('span');
+    badge.className = 'tag tag-admin';
+    badge.textContent = 'Admin';
+    status.append(badge);
+  }
+  if (player.ban) {
+    const badge = document.createElement('span');
+    badge.className = 'tag tag-ban';
+    badge.textContent = player.ban.until ? `Suspendido hasta ${formatDate(player.ban.until)}` : 'Suspendido sin fecha de fin';
+    status.append(badge);
+    if (player.ban.reason) {
+      const reason = document.createElement('small');
+      reason.textContent = `Motivo: ${player.ban.reason}`;
+      status.append(reason);
+    }
+  }
+  if (!player.admin && !player.ban) status.append('—');
+
+  const actions = cell();
+  actions.className = 'player-actions';
+  if (player.premium) {
+    const admin = state.admins.find((a) => a.uuid === player.uuid);
+    const toggle = smallButton(admin ? 'Quitar admin' : 'Hacer admin');
+    toggle.addEventListener('click', () => {
+      toggle.disabled = true;
+      run(
+        () =>
+          admin
+            ? api(`/api/panel/admins/${admin.id}`, { method: 'DELETE' })
+            : api('/api/panel/admins', { method: 'POST', body: { nick: player.name } }),
+        admin ? `${player.name} ya no es admin.` : `${player.name} ya es admin.`,
+      );
+    });
+    actions.append(toggle);
+  }
+  if (player.ban) {
+    const lift = smallButton('Quitar suspensión');
+    lift.addEventListener('click', () => {
+      lift.disabled = true;
+      run(() => api(playerUrl(player, '/ban'), { method: 'DELETE' }), `${player.name} puede volver a usar el launcher.`);
+    });
+    actions.append(lift);
+  } else {
+    // Suspender pide duración y motivo: se despliega al pulsar.
+    const box = document.createElement('details');
+    box.className = 'ban-box';
+    const summary = document.createElement('summary');
+    summary.className = 'btn btn-ghost btn-small btn-danger';
+    summary.textContent = 'Suspender';
+    const form = document.createElement('form');
+    const duration = document.createElement('select');
+    duration.setAttribute('aria-label', `Duración de la suspensión de ${player.name}`);
+    for (const [hours, label] of BAN_DURATIONS) duration.append(new Option(label, hours));
+    duration.value = '24';
+    const reason = document.createElement('input');
+    reason.maxLength = 120;
+    reason.placeholder = 'Motivo (lo verá el jugador)';
+    reason.setAttribute('aria-label', `Motivo de la suspensión de ${player.name}`);
+    const confirm = smallButton('Suspender', 'btn btn-small btn-ban');
+    confirm.type = 'submit';
+    form.append(duration, reason, confirm);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      confirm.disabled = true;
+      // Se suelta el foco para que la tabla se repinte con el resultado.
+      document.activeElement?.blur();
+      run(
+        () =>
+          api(playerUrl(player, '/ban'), {
+            method: 'PUT',
+            body: { hours: duration.value ? Number(duration.value) : null, reason: reason.value },
+          }),
+        `${player.name} no puede usar el launcher.`,
+      );
+    });
+    box.append(summary, form);
+    actions.append(box);
+  }
+  return row;
+}
+
+function renderPlayers() {
+  // No repintar la tabla mientras se rellena una suspensión.
+  const rows = document.getElementById('playerRows');
+  if (rows.contains(document.activeElement) && document.activeElement.closest('.ban-box')) return;
+  const players = state.players || [];
+  const shown = playerFilter ? players.filter((p) => p.name.toLowerCase().includes(playerFilter)) : players;
+  rows.replaceChildren(...shown.map(playerRow));
+  document.getElementById('playersEmpty').hidden = players.length > 0;
+  document.querySelector('.players-scroll').hidden = players.length === 0;
+  const admins = players.filter((p) => p.admin).length;
+  const banned = players.filter((p) => p.ban).length;
+  document.getElementById('playerCount').textContent =
+    `${players.length} jugadores · ${admins} admin · ${banned} suspendidos`;
+}
+
+document.getElementById('playerFilter').addEventListener('input', (e) => {
+  playerFilter = e.target.value.trim().toLowerCase();
+  renderPlayers();
+});
+
 // ---------- Novedades y evento ----------
 
 // Fecha ISO (UTC) -> valor de un <input type="datetime-local"> en hora local.
@@ -538,6 +682,7 @@ document.getElementById('eventClear').addEventListener('click', () => {
 function render() {
   for (const section of document.querySelectorAll('.pack')) renderPack(section);
   renderAdmins();
+  renderPlayers();
   renderAnnouncements();
 }
 

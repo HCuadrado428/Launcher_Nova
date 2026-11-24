@@ -59,6 +59,10 @@
     'stage.noBackend.text':
       'Este launcher todavía no sabe dónde está su servidor. Pon la dirección en Ajustes > Avanzado.',
     'stage.lost.title': 'SEÑAL PERDIDA',
+    'ban.title': 'ACCESO SUSPENDIDO',
+    'ban.until': 'No puedes usar el launcher hasta el {date}.',
+    'ban.forever': 'No puedes usar el launcher, sin fecha de fin.',
+    'ban.reason': 'Motivo: {reason}',
 
     'news.title': 'NOVEDADES',
     'event.next': 'PRÓXIMO EVENTO',
@@ -228,6 +232,10 @@
     'stage.noBackend.title': 'NO SIGNAL',
     'stage.noBackend.text': "This launcher doesn't know where its server is yet. Set the address in Settings > Advanced.",
     'stage.lost.title': 'SIGNAL LOST',
+    'ban.title': 'ACCESS SUSPENDED',
+    'ban.until': 'You cannot use the launcher until {date}.',
+    'ban.forever': 'You cannot use the launcher, with no end date.',
+    'ban.reason': 'Reason: {reason}',
 
     'news.title': 'NEWS',
     'event.next': 'NEXT EVENT',
@@ -397,6 +405,10 @@
     'stage.noBackend.text':
       'Este launcher ainda não sabe onde fica o seu servidor. Coloque o endereço em Configurações > Avançado.',
     'stage.lost.title': 'SINAL PERDIDO',
+    'ban.title': 'ACESSO SUSPENSO',
+    'ban.until': 'Você não pode usar o launcher até {date}.',
+    'ban.forever': 'Você não pode usar o launcher, sem data de fim.',
+    'ban.reason': 'Motivo: {reason}',
 
     'news.title': 'NOVIDADES',
     'event.next': 'PRÓXIMO EVENTO',

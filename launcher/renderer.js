@@ -285,6 +285,15 @@ async function loadModpacks() {
   }
   try {
     const data = await bridge.getModpacks();
+    if (data.banned) {
+      modpacks = [];
+      const until = data.banned.until
+        ? t('ban.until', { date: new Date(data.banned.until).toLocaleString(locale(), { dateStyle: 'long', timeStyle: 'short' }) })
+        : t('ban.forever');
+      const reason = data.banned.reason ? ` ${t('ban.reason', { reason: data.banned.reason })}` : '';
+      showStageError(t('ban.title'), `${until}${reason}`);
+      return;
+    }
     modpacks = data.modpacks;
     news = data.news;
     serverEvent = data.event;

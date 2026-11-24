@@ -13,6 +13,8 @@ const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
 const MAX_NEWS_LENGTH = 1500;
 const MAX_MOD_LABEL = 40;
+const MAX_BAN_HOURS = 24 * 366;
+const MAX_BAN_REASON = 120;
 const MAX_MOD_DESCRIPTION = 140;
 const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
 const SHA1_RE = /^[a-f0-9]{40}$/;
@@ -20,9 +22,11 @@ const NICK_RE = /^[A-Za-z0-9_]{1,16}$/;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,39}$/;
 
 class HttpError extends Error {
-  constructor(status, message) {
+  // extra: campos que se añaden a la respuesta JSON junto al mensaje.
+  constructor(status, message, extra = null) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -130,7 +134,43 @@ function createApp(options) {
       next();
     };
   }
-  const requirePlayer = requireSession('launcher');
+  // Clave con la que se guarda a cada jugador. Una cuenta de Microsoft es su
+  // UUID (el nick puede cambiar); una sin premium es solo su nick, y va con
+  // prefijo para que nunca se confunda con una cuenta verificada.
+  const playerKey = (session) => (session.premium === true ? session.uuid : `offline:${String(session.name).toLowerCase()}`);
+
+  function banError(ban) {
+    const until = ban.until ? ` hasta el ${new Date(ban.until).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'long', timeStyle: 'short' })} (hora de Madrid)` : '';
+    const reason = ban.reason ? ` Motivo: ${ban.reason}` : '';
+    return new HttpError(403, `Tu acceso al launcher está suspendido${until}.${reason}`, {
+      code: 'banned',
+      until: ban.until,
+      reason: ban.reason,
+    });
+  }
+
+  // Toda petición del launcher pasa por aquí: se rechaza a quien tenga el
+  // acceso suspendido y se apunta que el jugador ha usado el launcher.
+  function trackPlayer(req, session) {
+    const key = playerKey(session);
+    const ban = store.activeBan(key);
+    if (ban) throw banError(ban);
+    const version = String(req.headers['x-launcher-version'] || '').slice(0, 20);
+    store.touchPlayer(key, {
+      name: session.name,
+      uuid: session.uuid,
+      premium: session.premium === true,
+      launcherVersion: /^[\w.-]*$/.test(version) ? version : '',
+    });
+  }
+
+  const requirePlayer = [
+    requireSession('launcher'),
+    (req, res, next) => {
+      trackPlayer(req, req.session);
+      next();
+    },
+  ];
   const requireOwner = [
     requireSession('panel'),
     (req, res, next) => {
@@ -175,6 +215,7 @@ function createApp(options) {
     }
     if (!profile) throw new HttpError(401, 'Microsoft no reconoce esa sesión de Minecraft.');
     const session = { uuid: profile.uuid, name: profile.name, premium: true };
+    trackPlayer(req, session);
     res.json({ token: signToken(session, 'launcher', '30d'), player: playerInfo(session) });
   });
 
@@ -185,6 +226,7 @@ function createApp(options) {
     }
     // Una cuenta offline nunca es admin: el nick no demuestra nada.
     const session = { uuid: null, name: username, premium: false };
+    trackPlayer(req, session);
     res.json({ token: signToken(session, 'launcher', '30d'), player: playerInfo(session) });
   });
 
@@ -237,6 +279,7 @@ function createApp(options) {
     return {
       modpacks: MODPACK_IDS.map((id) => store.publicModpack(store.getModpack(id), { withMods: true })),
       admins: store.listAdmins(),
+      players: store.listPlayers().map((player) => ({ ...player, admin: player.premium && store.isAdminUuid(player.uuid) })),
       ...store.getAnnouncements(),
     };
   }
@@ -357,6 +400,29 @@ function createApp(options) {
     res.json(panelState());
   });
 
+  // Suspende el acceso de un jugador al launcher. hours: duración en horas,
+  // o null para que no tenga fin.
+  app.put('/api/panel/players/:key/ban', requireOwner, (req, res) => {
+    const { key } = req.params;
+    if (!store.hasPlayer(key)) throw new HttpError(404, 'Ese jugador no está en la lista.');
+    const body = req.body || {};
+    let until = null;
+    if (body.hours !== null && body.hours !== undefined) {
+      const hours = Number(body.hours);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > MAX_BAN_HOURS) {
+        throw new HttpError(400, 'La duración debe ser de entre 1 hora y 1 año.');
+      }
+      until = new Date(Date.now() + hours * 3_600_000).toISOString();
+    }
+    store.setBan(key, { until, reason: String(body.reason || '').trim().slice(0, MAX_BAN_REASON) });
+    res.json(panelState());
+  });
+
+  app.delete('/api/panel/players/:key/ban', requireOwner, (req, res) => {
+    if (!store.removeBan(req.params.key)) throw new HttpError(404, 'Ese jugador no tiene el acceso suspendido.');
+    res.json(panelState());
+  });
+
   app.put('/api/panel/news', requireOwner, (req, res) => {
     const text = req.body && req.body.text;
     if (typeof text !== 'string' || text.length > MAX_NEWS_LENGTH) {
@@ -415,7 +481,17 @@ function createApp(options) {
   // ---------- Panel web y errores ----------
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
-  app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', extensions: ['html'] }));
+  // Sin caché de tiempo fijo: el navegador comprueba en cada visita si el
+  // panel ha cambiado (con ETag), para que tras un despliegue no siga
+  // enseñando la versión anterior. Las fuentes no cambian y sí se guardan.
+  app.use(
+    express.static(path.join(__dirname, '..', 'public'), {
+      extensions: ['html'],
+      setHeaders: (res, file) => {
+        res.setHeader('Cache-Control', /\.woff2$/.test(file) ? 'public, max-age=2592000' : 'no-cache');
+      },
+    }),
+  );
 
   // biome-ignore lint/correctness/noUnusedVariables: Express reconoce el manejador de errores por sus 4 argumentos
   app.use((err, req, res, next) => {
@@ -423,7 +499,7 @@ function createApp(options) {
     if (status >= 500) console.error('[ERROR]', err);
     const message =
       err instanceof HttpError ? err.message : status < 500 ? 'Petición no válida.' : 'Error interno del servidor.';
-    res.status(status).json({ error: message });
+    res.status(status).json({ error: message, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
   });
 
   return app;
