@@ -14,7 +14,7 @@ const { ensureForge } = require('./main/forge');
 const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
-const { memoryPlan } = require('./main/memory');
+const { memoryPlan, memoryForExtraGame } = require('./main/memory');
 const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
 const modrinth = require('./main/modrinth');
 const importer = require('./main/importer');
@@ -28,16 +28,17 @@ const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 const MS_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 let mainWindow = null;
-let gameProcess = null;
-let busy = false; // hay una preparación/lanzamiento en marcha
+// Juegos abiertos, por modpack: { child, startedAt, log, memoryGb, stoppedByUser }.
+// Puede haber uno por modpack a la vez (un admin con el normal y el de admins).
+const games = new Map();
+let busy = false; // hay una preparación/lanzamiento en marcha (de una en una)
 // Invitación al Discord que da el backend (se comprueba antes de abrirla).
 const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
 let discordUrl = '';
-let stoppedByUser = false; // el jugador ha pulsado «Cerrar juego»
-let gameStartedAt = 0;
-// Salida del juego de la sesión actual, para incluirla al guardar registros.
+// Líneas de salida que se guardan de cada juego, para incluirlas al guardar registros.
 const MAX_GAME_LOG_LINES = 4000;
-let gameLog = [];
+// Lo último que escribió el juego de cada modpack, aunque ya se haya cerrado.
+const lastLogs = new Map();
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -208,7 +209,7 @@ ipcMain.handle('get-state', () => ({
   serverAddress: SERVER_ADDRESS,
   selectedModpack: loadConfig().selectedModpack || 'normal',
   playtime: loadConfig().playtime || {},
-  gameRunning: Boolean(gameProcess),
+  runningModpacks: [...games.keys()],
 }));
 
 // Lista de modpacks a los que tiene acceso la cuenta, con su estado local
@@ -403,8 +404,8 @@ ipcMain.handle('search-mods', async (event, { modpackId, query }) => {
 });
 
 ipcMain.handle('install-mod', async (event, { modpackId, projectId }) => {
-  if (busy || gameProcess) throw new Error(t('mods.closeFirst'));
   const id = String(modpackId);
+  if (busy || games.has(id)) throw new Error(t('mods.closeFirst'));
   const manifest = await fetchManifest(id);
   return modrinth.installMod({
     projectId: String(projectId),
@@ -454,7 +455,7 @@ ipcMain.handle('import-pick', async (event, modpackId) => {
 });
 
 ipcMain.handle('import-run', async (event, { modpackId, from, categories }) => {
-  if (busy || gameProcess) throw new Error(t('play.closeFirst'));
+  if (busy || games.has(String(modpackId))) throw new Error(t('play.closeFirst'));
   if (!importSources.has(from)) throw new Error(t('err.importSource'));
   const wanted = Array.isArray(categories) ? categories.map(String) : [];
   try {
@@ -538,7 +539,7 @@ const PLAY_STEPS = 5;
 
 async function play(modpackId) {
   const progress = (step, label, percent = null) =>
-    send('play-progress', { step, total: PLAY_STEPS, label, percent });
+    send('play-progress', { modpackId, step, total: PLAY_STEPS, label, percent });
   const cfg = settings();
   const dir = instanceDir(modpackId);
 
@@ -587,10 +588,12 @@ async function play(modpackId) {
   progress(5, t('prog.msLogin'));
   const account = await refreshMicrosoft(loadConfig().account);
   progress(5, t('prog.starting'));
-  gameLog = [];
-  stoppedByUser = false;
-  gameStartedAt = Date.now();
-  gameProcess = await launchGame(
+  // Con otro modpack ya abierto, a este se le da la memoria que queda libre.
+  const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
+  const memoryGb = memoryForExtraGame(os.totalmem(), cfg, usedGb);
+  const game = { child: null, startedAt: Date.now(), log: [], memoryGb, stoppedByUser: false };
+  lastLogs.set(modpackId, game.log);
+  game.child = await launchGame(
     {
       account,
       gameRoot: GAME_ROOT,
@@ -599,7 +602,7 @@ async function play(modpackId) {
       instanceDir: dir,
       versionId,
       javaPath: java.javaPath,
-      memoryGb: cfg.memoryGb,
+      memoryGb,
       serverAddress: SERVER_ADDRESS,
       // El modpack admin abre siempre en el menú normal de Minecraft: ahí está
       // el mod para cambiar de cuenta. El normal abre en el menú de NOVA 2.
@@ -608,30 +611,36 @@ async function play(modpackId) {
     },
     {
       onLog: (line) => {
-        gameLog.push(line);
-        if (gameLog.length > MAX_GAME_LOG_LINES) gameLog.splice(0, gameLog.length - MAX_GAME_LOG_LINES);
-        send('game-log', line);
+        game.log.push(line);
+        if (game.log.length > MAX_GAME_LOG_LINES) game.log.splice(0, game.log.length - MAX_GAME_LOG_LINES);
+        send('game-log', { modpackId, line });
       },
       onClose: (code) => {
-        gameProcess = null;
+        game.closed = true;
+        games.delete(modpackId);
         // Cierre con error (y no porque el jugador lo haya cerrado desde el
         // launcher): se mira si el juego ha dejado un informe.
-        const failed = code !== 0 && !stoppedByUser;
-        const crash = failed ? analyzeCrash({ instanceDir: dir, since: gameStartedAt - 5000, logLines: gameLog }) : null;
-        const playtime = addPlaytime(loadConfig().playtime, modpackId, gameStartedAt, Date.now());
+        const failed = code !== 0 && !game.stoppedByUser;
+        const crash = failed ? analyzeCrash({ instanceDir: dir, since: game.startedAt - 5000, logLines: game.log }) : null;
+        const playtime = addPlaytime(loadConfig().playtime, modpackId, game.startedAt, Date.now());
         saveConfig({ playtime });
         send('game-closed', { code, crash, modpackId, playtime });
       },
     },
   );
+  // Si el juego se ha cerrado nada más arrancar, ya no se apunta como abierto.
+  if (!game.closed) games.set(modpackId, game);
   send('game-started', { id: modpackId });
 }
 
 ipcMain.handle('play', async (event, modpackId) => {
-  if (busy || gameProcess) return { ok: false, message: t('err.busy') };
+  const id = String(modpackId);
+  // Se prepara un modpack cada vez (comparten descargas), y cada modpack solo
+  // puede estar abierto una vez (es una única carpeta de juego).
+  if (busy || games.has(id)) return { ok: false, message: t('err.busy') };
   busy = true;
   try {
-    await play(String(modpackId));
+    await play(id);
     return { ok: true };
   } catch (err) {
     console.error('[ERROR] No se pudo lanzar el juego:', err);
@@ -642,10 +651,11 @@ ipcMain.handle('play', async (event, modpackId) => {
   }
 });
 
-ipcMain.handle('stop-game', () => {
-  if (gameProcess) {
-    stoppedByUser = true;
-    gameProcess.kill();
+ipcMain.handle('stop-game', (event, modpackId) => {
+  const game = games.get(String(modpackId));
+  if (game) {
+    game.stoppedByUser = true;
+    game.child.kill();
   }
   return true;
 });
@@ -709,7 +719,8 @@ ipcMain.handle('open-discord', () => (discordUrl ? shell.openExternal(discordUrl
 ipcMain.handle('export-logs', async (event, modpackId) => {
   const id = String(modpackId);
   const dir = instanceDir(id);
-  if (collectLogFiles(dir).length === 0 && gameLog.length === 0) return { ok: false, reason: 'none' };
+  const consoleLines = lastLogs.get(id) || [];
+  if (collectLogFiles(dir).length === 0 && consoleLines.length === 0) return { ok: false, reason: 'none' };
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   const picked = await dialog.showSaveDialog(mainWindow, {
@@ -724,7 +735,7 @@ ipcMain.handle('export-logs', async (event, modpackId) => {
   await writeLogsZip({
     dest: picked.filePath,
     instanceDir: dir,
-    consoleLines: gameLog,
+    consoleLines,
     info: {
       Launcher: app.getVersion(),
       Modpack: id,
@@ -755,7 +766,7 @@ function setupAutoUpdates() {
 }
 
 ipcMain.handle('install-update', () => {
-  if (!gameProcess) autoUpdater.quitAndInstall();
+  if (games.size === 0) autoUpdater.quitAndInstall();
 });
 
 // ============================================================================

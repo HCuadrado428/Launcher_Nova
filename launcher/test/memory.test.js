@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { memoryPlan } = require('../main/memory');
+const { memoryPlan, memoryForExtraGame } = require('../main/memory');
 
 const gb = (n) => n * 1024 ** 3;
 
@@ -35,4 +35,19 @@ test('a mano se respeta lo elegido, dentro de lo que el equipo permite', () => {
   assert.equal(memoryPlan(gb(15.9), { memoryAuto: false, memoryGb: 10 }).memoryGb, 10);
   assert.equal(memoryPlan(gb(7.9), { memoryAuto: false, memoryGb: 12 }).memoryGb, 5);
   assert.equal(memoryPlan(gb(15.9), { memoryAuto: false, memoryGb: 1 }).memoryGb, 2);
+});
+
+test('el segundo juego abierto a la vez se queda con la memoria que sobra', () => {
+  // [memoria del equipo, lo que ya usa el primero, lo que le toca al segundo]
+  for (const [total, used, expected] of [
+    [31.9, 8, 8],
+    [15.9, 8, 5],
+    [11.9, 6, 3],
+    [7.9, 5, 2],
+  ]) {
+    assert.equal(memoryForExtraGame(gb(total), memoryPlan(gb(total)), used), expected, `${total} GB`);
+  }
+  // Sin otro juego abierto, o con la memoria fijada a mano, no cambia nada.
+  assert.equal(memoryForExtraGame(gb(15.9), memoryPlan(gb(15.9)), 0), 8);
+  assert.equal(memoryForExtraGame(gb(15.9), memoryPlan(gb(15.9), { memoryAuto: false, memoryGb: 7 }), 8), 7);
 });

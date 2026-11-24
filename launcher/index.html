@@ -293,7 +293,9 @@
 
       <div class="field">
         <span class="field-title" data-i18n="import.from"></span>
+        <input id="importFilter" type="search" spellcheck="false" hidden data-i18n-attr="placeholder:import.filter|aria-label:import.filter" />
         <ul class="import-list" id="importSources"></ul>
+        <p class="hint" id="importNoMatch" hidden data-i18n="import.noMatch"></p>
         <p class="hint" id="importNone" hidden data-i18n="import.none"></p>
         <div class="row">
           <button class="btn" type="button" id="importPick" data-i18n="import.pick"></button>

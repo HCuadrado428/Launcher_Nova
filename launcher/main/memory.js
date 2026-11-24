@@ -25,4 +25,13 @@ function memoryPlan(totalBytes, cfg = {}) {
   };
 }
 
-module.exports = { memoryPlan };
+// Memoria para un juego que se abre mientras otro modpack sigue abierto. En
+// automático se reparte lo que queda libre, para no pedir entre los dos más
+// de lo que tiene el equipo; fijada a mano, se respeta lo que eligió el jugador.
+function memoryForExtraGame(totalBytes, plan, usedGb) {
+  if (!plan.memoryAuto || usedGb <= 0) return plan.memoryGb;
+  const free = Math.floor(totalBytes / GB) - 2 - usedGb;
+  return Math.max(2, Math.min(plan.memoryGb, free));
+}
+
+module.exports = { memoryPlan, memoryForExtraGame };

@@ -20,8 +20,23 @@ let playtime = {};
 let page = 'home'; // home | mods | shots
 let serverStatus; // undefined = aún no se ha consultado
 let selectedId = 'normal';
-let phase = 'idle'; // idle | preparing | running
-const logLines = [];
+// Puede haber un juego abierto por modpack a la vez (un admin con el normal y
+// el de admins), pero solo se prepara uno cada vez.
+let preparingId = null; // modpack que se está preparando ahora
+let lastProgress = null; // último aviso de esa preparación
+let firstInstall = false; // esa preparación es una primera instalación
+const running = new Set(); // modpacks con el juego abierto
+const logs = {}; // salida del juego, por modpack
+
+// Estado de un modpack: running | preparing | waiting (se prepara otro) | idle.
+function phaseOf(id = selectedId) {
+  if (running.has(id)) return 'running';
+  if (preparingId === id) return 'preparing';
+  return preparingId ? 'waiting' : 'idle';
+}
+// ¿Se puede tocar la carpeta de ese modpack (mods, importar, reparar)?
+const isBusy = (id = selectedId) => running.has(id) || preparingId === id;
+const anyGame = () => preparingId !== null || running.size > 0;
 
 // ---------- Utilidades ----------
 
@@ -205,7 +220,7 @@ $('offlineForm').addEventListener('submit', async (e) => {
 });
 
 $('logoutBtn').addEventListener('click', async () => {
-  if (phase !== 'idle') {
+  if (anyGame()) {
     toast(t('play.closeFirst'), 'error');
     return;
   }
@@ -422,7 +437,8 @@ function renderModpacks() {
         const name = document.createElement('strong');
         name.textContent = modpack.name;
         const meta = document.createElement('span');
-        meta.textContent = t('pack.mods', { n: modpack.modCount });
+        meta.textContent = running.has(modpack.id) ? t('pack.running') : t('pack.mods', { n: modpack.modCount });
+        tab.classList.toggle('is-running', running.has(modpack.id));
         tab.append(name, meta);
         return tab;
       }),
@@ -477,7 +493,7 @@ function renderModpacks() {
 
 $('packTabs').addEventListener('click', (e) => {
   const tab = e.target.closest('.tab');
-  if (!tab || phase !== 'idle') return;
+  if (!tab) return;
   selectedId = tab.dataset.pack;
   bridge.selectModpack(selectedId);
   renderModpacks();
@@ -494,7 +510,7 @@ $('retryBtn').addEventListener('click', loadModpacks);
 // si la cuenta ha pasado a ser admin).
 let lastFocusRefresh = 0;
 window.addEventListener('focus', () => {
-  if (document.body.dataset.view !== 'main' || phase !== 'idle' || !state.settings.backendConfigured) return;
+  if (document.body.dataset.view !== 'main' || preparingId || !state.settings.backendConfigured) return;
   if (Date.now() - lastFocusRefresh < 20_000) return;
   lastFocusRefresh = Date.now();
   loadModpacks();
@@ -502,9 +518,11 @@ window.addEventListener('focus', () => {
 
 // ---------- Jugar ----------
 
+// Pinta el botón, el progreso y la consola del modpack seleccionado.
 function renderPlayButton() {
   const button = $('playBtn');
   const modpack = modpacks.find((m) => m.id === selectedId);
+  const phase = phaseOf();
   if (phase === 'running') {
     button.textContent = t('play.close');
     button.disabled = false;
@@ -513,8 +531,20 @@ function renderPlayButton() {
     button.disabled = true;
   } else {
     button.textContent = t(modpack && modpack.status === 'ready' ? 'play.play' : 'play.install');
-    button.disabled = !modpack;
+    // Mientras se prepara el otro modpack, este espera su turno.
+    button.disabled = !modpack || phase === 'waiting';
   }
+
+  $('progressHint').hidden = !(phase === 'preparing' && firstInstall);
+  if (phase === 'running') {
+    setProgress(t('play.running'), 100);
+  } else if (phase === 'preparing') {
+    if (lastProgress) setProgress(lastProgress.label, lastProgress.percent, lastProgress.step, lastProgress.total);
+    else setProgress(t('play.preparingLabel'), null);
+  } else {
+    $('progressBox').hidden = true;
+  }
+  renderConsole(true);
 }
 
 // step/total: «Paso 2 de 5» delante del texto (se omite si no hay paso).
@@ -530,61 +560,66 @@ function setProgress(label, percent, step, total) {
   else bar.removeAttribute('aria-valuenow');
 }
 
-function addLog(line) {
-  logLines.push(line.replace(/\s+$/, ''));
-  if (logLines.length > MAX_LOG_LINES) logLines.splice(0, logLines.length - MAX_LOG_LINES);
+function renderConsole(toBottom = false) {
   const pre = $('consoleLog');
-  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
-  pre.textContent = logLines.join('\n');
+  const atBottom = toBottom || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+  pre.textContent = (logs[selectedId] || []).join('\n');
   if (atBottom) pre.scrollTop = pre.scrollHeight;
 }
 
+function addLog({ modpackId, line }) {
+  const lines = logs[modpackId] || (logs[modpackId] = []);
+  lines.push(line.replace(/\s+$/, ''));
+  if (lines.length > MAX_LOG_LINES) lines.splice(0, lines.length - MAX_LOG_LINES);
+  if (modpackId === selectedId) renderConsole();
+}
+
 $('playBtn').addEventListener('click', async () => {
-  if (phase === 'running') {
-    bridge.stopGame();
+  const id = selectedId;
+  if (phaseOf(id) === 'running') {
+    bridge.stopGame(id);
     return;
   }
-  if (phase !== 'idle') return;
-  phase = 'preparing';
+  if (phaseOf(id) !== 'idle') return;
+  preparingId = id;
+  lastProgress = null;
   // La primera instalación es larga: se avisa para que nadie piense que se ha colgado.
-  const current = modpacks.find((m) => m.id === selectedId);
-  $('progressHint').hidden = !(current && current.status === 'not-installed');
-  logLines.length = 0;
-  $('consoleLog').textContent = '';
+  const current = modpacks.find((m) => m.id === id);
+  firstInstall = Boolean(current && current.status === 'not-installed');
+  logs[id] = [];
   renderPlayButton();
-  setProgress(t('play.preparingLabel'), null);
 
   let result;
   try {
-    result = await bridge.play(selectedId);
+    result = await bridge.play(id);
   } catch (err) {
     result = { ok: false, message: errorText(err) };
   }
+  // Si ha ido bien, «game-started» ya ha dejado el modpack como abierto.
+  if (preparingId === id) preparingId = null;
   if (!result.ok) {
-    phase = 'idle';
-    $('progressBox').hidden = true;
     toast(result.message, 'error');
     // Recargar la lista: si se ha perdido el acceso al modpack, desaparece.
     await loadModpacks();
-    renderPlayButton();
   }
+  renderPlayButton();
 });
 
-bridge.onPlayProgress(({ label, percent, step, total }) => {
-  if (phase === 'preparing') setProgress(label, percent, step, total);
+bridge.onPlayProgress((progress) => {
+  if (progress.modpackId !== preparingId) return;
+  lastProgress = progress;
+  if (progress.modpackId === selectedId) setProgress(progress.label, progress.percent, progress.step, progress.total);
 });
 
-bridge.onGameStarted(() => {
-  phase = 'running';
-  $('progressHint').hidden = true;
-  setProgress(t('play.running'), 100);
+bridge.onGameStarted(({ id }) => {
+  running.add(id);
+  if (preparingId === id) preparingId = null;
   renderPlayButton();
   loadModpacks();
 });
 
 bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
-  phase = 'idle';
-  $('progressBox').hidden = true;
+  running.delete(modpackId);
   if (updated) playtime = updated;
   if (modpacks.length > 0) renderModpacks();
   if (page === 'shots') refreshShots();
@@ -650,10 +685,19 @@ function updateImportButton() {
   $('importRun').disabled = !importFrom || $('importCats').querySelectorAll('input:checked').length === 0;
 }
 
+// El buscador sale cuando hay varias instalaciones entre las que elegir
+// (quien usa CurseForge o Modrinth suele tener muchas).
 function renderImportSources() {
   $('importNone').hidden = importList.length > 0;
+  $('importFilter').hidden = importList.length < 2;
+  const words = $('importFilter').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = importList.filter((source) => {
+    const text = `${source.launcher} ${source.name} ${source.path}`.toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+  $('importNoMatch').hidden = importList.length === 0 || shown.length > 0;
   $('importSources').replaceChildren(
-    ...importList.map((source) => {
+    ...shown.map((source) => {
       const li = document.createElement('li');
       const label = document.createElement('label');
       const radio = document.createElement('input');
@@ -682,7 +726,7 @@ function renderImportSources() {
 }
 
 async function openImport() {
-  if (phase !== 'idle') {
+  if (isBusy()) {
     toast(t('play.closeFirst'), 'error');
     return;
   }
@@ -690,6 +734,7 @@ async function openImport() {
   $('importTarget').textContent = modpack ? `→ ${modpack.name}` : '';
   importList = [];
   importFrom = null;
+  $('importFilter').value = '';
   importMessage('');
   renderImportSources();
   renderImportCategories();
@@ -706,6 +751,7 @@ async function openImport() {
   renderImportCategories();
 }
 
+$('importFilter').addEventListener('input', renderImportSources);
 for (const button of document.querySelectorAll('[data-open-import]')) button.addEventListener('click', openImport);
 $('settingsImportBtn').addEventListener('click', openImport);
 $('importClose').addEventListener('click', () => importDialog.close());
@@ -856,7 +902,7 @@ $('pickJavaBtn').addEventListener('click', async () => {
 });
 $('openFolderBtn').addEventListener('click', () => bridge.openFolder(selectedId));
 $('repairBtn').addEventListener('click', async () => {
-  if (phase !== 'idle') {
+  if (isBusy()) {
     showSettingsError(t('play.closeFirst'));
     return;
   }
@@ -939,7 +985,7 @@ async function refreshMods() {
       box.type = 'checkbox';
       box.checked = mod.enabled;
       box.addEventListener('change', async () => {
-        if (phase !== 'idle') {
+        if (isBusy()) {
           box.checked = !box.checked;
           showModsError(t('mods.closeFirst'));
           return;
@@ -1168,7 +1214,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.repeat || document.body.dataset.view !== 'main' || page !== 'home') return;
   if (document.querySelector('dialog[open]') || stage.dataset.error) return;
   if (e.target.closest('input, textarea, select, button, summary, a')) return;
-  if (phase === 'idle') $('playBtn').click();
+  if (phaseOf() === 'idle') $('playBtn').click();
 });
 
 // ---------- Actualización del launcher ----------
@@ -1183,7 +1229,7 @@ bridge.onUpdateReady(({ version }) => {
   renderUpdate();
 });
 $('updateBtn').addEventListener('click', () => {
-  if (phase !== 'idle') toast(t('play.closeFirst'), 'error');
+  if (anyGame()) toast(t('play.closeFirst'), 'error');
   else bridge.installUpdate();
 });
 
@@ -1193,6 +1239,7 @@ $('updateBtn').addEventListener('click', () => {
   state = await bridge.getState();
   i18n.setLanguage(state.settings.language);
   playtime = state.playtime || {};
+  for (const id of state.runningModpacks || []) running.add(id);
   applyAppearance();
   applyStaticTexts();
   setPage('home');

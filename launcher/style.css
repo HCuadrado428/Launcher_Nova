@@ -1538,3 +1538,23 @@ body {
 #importCats {
   max-height: none;
 }
+
+/* ---------- Dos modpacks abiertos a la vez ---------- */
+
+.tab.is-running span {
+  color: var(--emerald);
+  font-weight: 600;
+}
+.tab.is-running span::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #2ecc71;
+  box-shadow: 0 0 6px #2ecc71;
+}
+#importFilter {
+  margin-bottom: 2px;
+}

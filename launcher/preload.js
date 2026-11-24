@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('nova', {
   selectModpack: (id) => ipcRenderer.invoke('select-modpack', id),
   serverStatus: () => ipcRenderer.invoke('server-status'),
   play: (id) => ipcRenderer.invoke('play', id),
-  stopGame: () => ipcRenderer.invoke('stop-game'),
+  stopGame: (id) => ipcRenderer.invoke('stop-game', id),
   saveSettings: (partial) => ipcRenderer.invoke('save-settings', partial),
   pickJava: () => ipcRenderer.invoke('pick-java'),
   openFolder: (id) => ipcRenderer.invoke('open-folder', id),
