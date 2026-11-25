@@ -6,7 +6,7 @@ const path = require('node:path');
 const { createApp } = require('../../server/src/app');
 const { makeZip } = require('../../server/testlib/zip');
 const api = require('../main/api');
-const { syncMods, planSync, loadMeta, safeModFilename, modKey } = require('../main/sync');
+const { syncMods, planSync, loadMeta, safeModFilename, modKey, saveMeta } = require('../main/sync');
 const { forgeJar } = require('../../server/testlib/zip');
 
 // La sincronización del launcher contra el backend de verdad (carpeta
@@ -283,6 +283,13 @@ test('config y recursos: se reparten, y lo que retoca el jugador se respeta hast
   assert.equal(read('config/jei.toml'), 'modo = 3');
   assert.equal(read('resourcepacks/Nova.zip'), 'paquete v2');
   assert.ok(!fs.existsSync(path.join(dir, 'config', 'create', 'common.toml')), 'lo que ya no se reparte y no se ha tocado, se quita');
+
+  // «Restablecer configuración» olvida lo que se le puso: vuelve la versión del modpack.
+  write('config/jei.toml', 'modo = 9 (lo he roto)');
+  assert.equal((await sync(token, 'normal', dir)).files, 0);
+  saveMeta(dir, { ...loadMeta(dir), files: [] });
+  assert.equal((await sync(token, 'normal', dir)).files, 1);
+  assert.equal(read('config/jei.toml'), 'modo = 3');
 
   // Lo que deja de repartirse pero el jugador había retocado, se le deja.
   write('config/jei.toml', 'modo = 4 (mío)');

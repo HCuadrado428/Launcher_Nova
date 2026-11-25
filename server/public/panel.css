@@ -921,3 +921,10 @@ input::placeholder {
   font: inherit;
   font-size: 14px;
 }
+
+.stats-crashes {
+  height: 90px;
+}
+.stats-crashes .stats-day span {
+  background: #e06c5a;
+}

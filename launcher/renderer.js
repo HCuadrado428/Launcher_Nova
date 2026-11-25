@@ -1146,6 +1146,20 @@ $('repairBtn').addEventListener('click', async () => {
   toast(t('settings.repairDone'));
   loadModpacks();
 });
+$('resetConfigBtn').addEventListener('click', async () => {
+  if (isBusy()) {
+    showSettingsError(t('play.closeFirst'));
+    return;
+  }
+  try {
+    await bridge.resetConfig(selectedId);
+  } catch (err) {
+    showSettingsError(errorText(err));
+    return;
+  }
+  dialog.close();
+  toast(t('settings.resetConfigDone'));
+});
 $('logsBtn').addEventListener('click', async () => showSettingsError(await saveLogs(selectedId)));
 
 $('settingsForm').addEventListener('submit', async (e) => {

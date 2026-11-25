@@ -749,6 +749,26 @@ test('estadísticas: actividad por día, versiones y mods opcionales desactivado
   assert.deepEqual(stats.optional.normal, { players: 2, mods: [{ name: 'Minimapa', disabled: 1 }] });
 });
 
+test('estadísticas: cierres por error por día y mods señalados', async () => {
+  const { owner, player, offline } = await login();
+  const crash = (token, suspects) => api('/api/me/crash', { method: 'POST', token, body: { suspects } });
+  assert.equal((await api('/api/me/crash', { method: 'POST', body: {} })).status, 401);
+  const before = (await api('/api/panel/state', { token: owner })).data.stats.days.at(-1).crashes;
+
+  assert.equal((await crash(player, ['Create', 'Create', '  JourneyMap  ', 42, 'x'.repeat(200)])).status, 200);
+  assert.equal((await crash(offline, ['Create'])).status, 200);
+  // El mismo jugador reintentando muchas veces solo cuenta hasta 5 al día.
+  for (let i = 0; i < 8; i++) await crash(player, undefined);
+
+  const { stats } = (await api('/api/panel/state', { token: owner })).data;
+  assert.equal(stats.days.at(-1).crashes - before, 6);
+  assert.deepEqual(stats.suspects.slice(0, 2), [
+    { name: 'Create', crashes: 2 },
+    { name: 'JourneyMap', crashes: 1 },
+  ]);
+  assert.equal(stats.suspects[2].name.length, 60);
+});
+
 test('CurseForge: sin clave no hay búsqueda; con clave se devuelve lo justo', async () => {
   const { player } = await login();
   assert.equal((await api('/api/modpacks', { token: player })).data.curseforge, false);

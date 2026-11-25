@@ -567,27 +567,40 @@ function renderHistory(section, modpack) {
 function renderStats() {
   const stats = state.stats;
   if (!stats) return;
-  const max = Math.max(1, ...stats.days.map((day) => day.players));
-  const total = stats.days.reduce((sum, day) => sum + day.players, 0);
-  const days = document.getElementById('statsDays');
-  days.setAttribute('aria-label', `Jugadores por día. Máximo: ${max}. Hoy: ${stats.days[stats.days.length - 1].players}.`);
-  days.replaceChildren(
-    ...stats.days.map((day) => {
-      const column = document.createElement('div');
-      column.className = 'stats-day';
-      const [, month, date] = day.date.split('-');
-      column.title = `${date}/${month}: ${day.players} ${day.players === 1 ? 'jugador' : 'jugadores'}`;
-      const bar = document.createElement('span');
-      bar.style.height = `${Math.round((day.players / max) * 100)}%`;
-      const count = document.createElement('small');
-      count.textContent = day.players > 0 ? String(day.players) : '';
-      const label = document.createElement('small');
-      label.textContent = date;
-      column.append(count, bar, label);
-      return column;
-    }),
-  );
-  days.classList.toggle('is-empty', total === 0);
+  // Una barra por día. value(day): el número; words: [singular, plural].
+  const dayBars = (id, title, value, words) => {
+    const max = Math.max(1, ...stats.days.map(value));
+    const total = stats.days.reduce((sum, day) => sum + value(day), 0);
+    const days = document.getElementById(id);
+    days.setAttribute('aria-label', `${title}. Máximo: ${max}. Hoy: ${value(stats.days[stats.days.length - 1])}.`);
+    days.replaceChildren(
+      ...stats.days.map((day) => {
+        const column = document.createElement('div');
+        column.className = 'stats-day';
+        const [, month, date] = day.date.split('-');
+        column.title = `${date}/${month}: ${value(day)} ${value(day) === 1 ? words[0] : words[1]}`;
+        const bar = document.createElement('span');
+        bar.style.height = `${Math.round((value(day) / max) * 100)}%`;
+        const count = document.createElement('small');
+        count.textContent = value(day) > 0 ? String(value(day)) : '';
+        const label = document.createElement('small');
+        label.textContent = date;
+        column.append(count, bar, label);
+        return column;
+      }),
+    );
+    days.classList.toggle('is-empty', total === 0);
+    return total;
+  };
+  dayBars('statsDays', 'Jugadores por día', (day) => day.players, ['jugador', 'jugadores']);
+  const crashes = dayBars('statsCrashes', 'Cierres por error por día', (day) => day.crashes || 0, ['cierre', 'cierres']);
+  const suspects = stats.suspects || [];
+  document.getElementById('statsSuspects').textContent =
+    crashes === 0
+      ? 'Ningún cierre por error en estos 30 días.'
+      : suspects.length > 0
+        ? `Mods que más señalan los informes de esta semana: ${suspects.map((mod) => `${mod.name} (${mod.crashes})`).join(', ')}.`
+        : 'Los informes de esta semana no señalan a ningún mod en concreto.';
 
   const row = (text, value, share) => {
     const li = document.createElement('li');

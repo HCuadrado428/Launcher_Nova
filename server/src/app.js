@@ -69,6 +69,8 @@ function looksLikeJar(file) {
   }
 }
 
+// Cierres por error que se cuentan al día de un mismo jugador.
+const MAX_CRASHES_PER_PLAYER_DAY = 5;
 // Personajes (nicks sin premium) que puede tener cada admin.
 const MAX_CHARACTERS = 12;
 
@@ -297,6 +299,32 @@ function createApp(options) {
       store.setDisabledMods(playerKey(req.session), modpack.id, keys);
     }
     res.json(store.publicModpack(modpack, { withMods: true }));
+  });
+
+  // El launcher avisa de que el juego se ha cerrado por error. Solo se cuenta
+  // (cuántos al día y qué mods señala el informe), para que el dueño vea en el
+  // panel si una actualización ha roto algo. No se guarda quién ni el informe.
+  const crashReports = new Map(); // jugador -> { day, count }
+  app.post('/api/me/crash', requirePlayer, (req, res) => {
+    const key = playerKey(req.session);
+    const day = new Date().toISOString().slice(0, 10);
+    const seen = crashReports.get(key);
+    const count = seen && seen.day === day ? seen.count + 1 : 1;
+    crashReports.set(key, { day, count });
+    // Un mismo jugador reintentando una y otra vez no debe inflar la cuenta.
+    if (count <= MAX_CRASHES_PER_PLAYER_DAY) {
+      const raw = req.body && Array.isArray(req.body.suspects) ? req.body.suspects : [];
+      const suspects = [
+        ...new Set(
+          raw
+            .filter((name) => typeof name === 'string')
+            .map((name) => name.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60))
+            .filter(Boolean),
+        ),
+      ].slice(0, 5);
+      store.recordCrash(suspects);
+    }
+    res.json({ ok: true });
   });
 
   // ---------- CurseForge (la clave de su API se queda en el servidor) ----------

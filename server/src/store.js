@@ -14,6 +14,7 @@ const PLAYER_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_HISTORY = 15;
 // Días de actividad que se guardan para las estadísticas del panel.
 const STATS_DAYS = 60;
+const MAX_SUSPECTS_PER_DAY = 60;
 
 const DEFAULT_MODPACKS = {
   normal: { name: 'NOVA 2', description: 'El modpack del servidor. Para todo el mundo.' },
@@ -65,6 +66,8 @@ function normalize(data) {
   // Quién ha abierto el launcher cada día: { 'AAAA-MM-DD': [claves de jugador] }.
   data.stats = data.stats && typeof data.stats === 'object' ? data.stats : {};
   data.stats.days = data.stats.days && typeof data.stats.days === 'object' ? data.stats.days : {};
+  // Cierres del juego por error cada día: { 'AAAA-MM-DD': { total, mods: { nombre: veces } } }.
+  data.stats.crashes = data.stats.crashes && typeof data.stats.crashes === 'object' ? data.stats.crashes : {};
   data.news = data.news && typeof data.news.text === 'string' ? data.news : { text: '', updatedAt: null };
   data.event = data.event && data.event.name && data.event.start ? data.event : null;
   data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
@@ -490,13 +493,34 @@ function createStore(dataDir) {
       save();
     },
 
-    // Resumen para el panel: actividad por día, versiones del launcher en uso
-    // y qué mods opcionales desactiva más la gente.
+    // Apunta un cierre del juego por error (lo avisa el launcher). suspects:
+    // mods que el informe de error señala como posibles culpables.
+    recordCrash(suspects) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (!data.stats.crashes[today]) {
+        data.stats.crashes[today] = { total: 0, mods: {} };
+        for (const date of Object.keys(data.stats.crashes).sort().slice(0, -STATS_DAYS)) delete data.stats.crashes[date];
+      }
+      const day = data.stats.crashes[today];
+      day.total += 1;
+      for (const name of suspects) {
+        if (day.mods[name] === undefined && Object.keys(day.mods).length >= MAX_SUSPECTS_PER_DAY) continue;
+        day.mods[name] = (day.mods[name] || 0) + 1;
+      }
+      save();
+    },
+
+    // Resumen para el panel: actividad y cierres por error cada día, versiones
+    // del launcher en uso y qué mods opcionales desactiva más la gente.
     stats() {
       const days = [];
+      const suspects = {};
       for (let i = 29; i >= 0; i--) {
         const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-        days.push({ date, players: (data.stats.days[date] || []).length });
+        const crashes = data.stats.crashes[date] || { total: 0, mods: {} };
+        days.push({ date, players: (data.stats.days[date] || []).length, crashes: crashes.total });
+        // Mods señalados en los cierres de la última semana.
+        if (i < 7) for (const [name, count] of Object.entries(crashes.mods)) suspects[name] = (suspects[name] || 0) + count;
       }
       const recent = Date.now() - 30 * 86400000;
       const versions = {};
@@ -523,6 +547,10 @@ function createStore(dataDir) {
       }
       return {
         days,
+        suspects: Object.entries(suspects)
+          .map(([name, crashes]) => ({ name, crashes }))
+          .sort((a, b) => b.crashes - a.crashes)
+          .slice(0, 8),
         versions: Object.entries(versions)
           .map(([version, players]) => ({ version, players }))
           .sort((a, b) => b.players - a.players),

@@ -19,7 +19,7 @@ Nova Launcher has no advertising and sends nothing to analytics companies. It on
 
 The Nova Launcher server keeps a list of the players who have used the launcher, visible only to the server's owner: Minecraft nickname, Minecraft account ID (Microsoft accounts), whether the account is premium, the first and last time the launcher contacted the server, and the launcher version. The owner uses it to decide who may use the admin modpack and to suspend a player's access to the launcher. It keeps no passwords and no session tokens.
 
-For the owner's statistics the server also keeps, per player, which optional mods are turned off, and for the last 60 days which players opened the launcher each day. Admins who create characters (extra non-premium nicknames for the admin modpack) have those nicknames stored with their account.
+For the owner's statistics the server also keeps, per player, which optional mods are turned off, for the last 60 days which players opened the launcher each day, and a daily count of game crashes with the names of the mods the crash report points to (not who crashed, and not the report itself). Admins who create characters (extra non-premium nicknames for the admin modpack) have those nicknames stored with their account.
 
 As with any internet connection, each of those systems sees your IP address.
 
@@ -46,7 +46,7 @@ Nova Launcher no tiene publicidad ni envía nada a empresas de analíticas. Solo
 
 El servidor del Nova Launcher guarda una lista de los jugadores que han usado el launcher, que solo ve el dueño del servidor: nick de Minecraft, identificador de la cuenta de Minecraft (cuentas Microsoft), si la cuenta es premium, la primera y la última vez que el launcher contactó con el servidor, y la versión del launcher. El dueño la usa para decidir quién puede usar el modpack de admins y para suspender el acceso de un jugador al launcher. No guarda contraseñas ni tokens de sesión.
 
-Para las estadísticas del dueño, el servidor guarda además, por jugador, qué mods opcionales tiene desactivados y, de los últimos 60 días, qué jugadores abrieron el launcher cada día. A los admins que crean personajes (nicks sin premium para el modpack de admins) se les guardan esos nicks junto a su cuenta.
+Para las estadísticas del dueño, el servidor guarda además, por jugador, qué mods opcionales tiene desactivados de los últimos 60 días, qué jugadores abrieron el launcher cada día, y una cuenta diaria de los cierres del juego por error con los nombres de los mods que señala el informe (no quién lo sufrió, ni el informe en sí). A los admins que crean personajes (nicks sin premium para el modpack de admins) se les guardan esos nicks junto a su cuenta.
 
 Como en cualquier conexión a internet, cada uno de esos sistemas ve tu dirección IP.
 

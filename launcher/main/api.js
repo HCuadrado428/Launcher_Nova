@@ -89,6 +89,9 @@ module.exports = {
       `/api/modpacks/${modpackId}/manifest${disabled ? `?disabled=${encodeURIComponent(disabled.join(','))}` : ''}`,
       { token },
     ),
+  // Avisa de un cierre por error (solo para las estadísticas del panel).
+  reportCrash: (baseUrl, token, suspects) =>
+    request(baseUrl, '/api/me/crash', { method: 'POST', token, body: { suspects } }),
   searchCurseforge: (baseUrl, token, query, mcVersion) =>
     request(baseUrl, `/api/curseforge/search?q=${encodeURIComponent(query)}&mc=${encodeURIComponent(mcVersion)}`, { token }),
   curseforgeFile: (baseUrl, token, modId, mcVersion) =>

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('nova', {
   pickJava: () => ipcRenderer.invoke('pick-java'),
   openFolder: (id) => ipcRenderer.invoke('open-folder', id),
   repair: (id) => ipcRenderer.invoke('repair', id),
+  resetConfig: (id) => ipcRenderer.invoke('reset-config', id),
   openWeb: () => ipcRenderer.invoke('open-web'),
   openDiscord: () => ipcRenderer.invoke('open-discord'),
   getMods: (id) => ipcRenderer.invoke('get-mods', id),

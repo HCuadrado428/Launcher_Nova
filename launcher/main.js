@@ -790,6 +790,7 @@ async function play(modpackId) {
         // launcher): se mira si el juego ha dejado un informe.
         const failed = code !== 0 && !game.stoppedByUser;
         const crash = failed ? analyzeCrash({ instanceDir: dir, since: game.startedAt - 5000, logLines: game.log }) : null;
+        if (failed) reportCrash(crash);
         const playtime = addPlaytime(loadConfig().playtime, modpackId, game.startedAt, Date.now());
         saveConfig({ playtime });
         send('game-closed', { code, crash, modpackId, playtime });
@@ -818,6 +819,13 @@ ipcMain.handle('play', async (event, modpackId) => {
     busy = false;
   }
 });
+
+// Cuenta al servidor que el juego se ha cerrado por error, con los mods que
+// señala el informe. Si no hay conexión, no pasa nada.
+function reportCrash(crash) {
+  const suspects = ((crash && crash.suspects) || []).map((mod) => String((mod && mod.name) || mod)).slice(0, 5);
+  withSession((token) => api.reportCrash(backendUrl(), token, suspects)).catch(() => {});
+}
 
 // Abre una segunda ventana del modpack de admins con otro personaje, mientras
 // la primera sigue abierta. Usa una carpeta espejo (main/seat.js): mismos
@@ -869,6 +877,7 @@ async function playSecond(nick) {
         games.delete(SECOND_SEAT);
         const failed = code !== 0 && !game.stoppedByUser;
         const crash = failed ? analyzeCrash({ instanceDir: dir, since: game.startedAt - 5000, logLines: game.log }) : null;
+        if (failed) reportCrash(crash);
         send('game-closed', { code, crash, modpackId: SECOND_SEAT });
       },
     },
@@ -948,6 +957,18 @@ ipcMain.handle('open-folder', (event, modpackId) => {
 
 // Reparar: olvida qué mods hay bajados para que el siguiente "Jugar" los
 // compruebe y vuelva a bajar todos. No toca mundos ni opciones.
+// Deja de recordar qué archivos de configuración y recursos se le pusieron al
+// jugador: en el próximo Jugar se vuelven a poner todos los del modpack, y los
+// que hubiera retocado quedan como los reparte el dueño.
+ipcMain.handle('reset-config', (event, modpackId) => {
+  const id = String(modpackId);
+  if (busy || packInUse(id)) throw new Error(t('play.closeFirst'));
+  const dir = instanceDir(id);
+  const meta = loadMeta(dir);
+  if (meta.versionHash || meta.mods.length > 0 || meta.files.length > 0) saveMeta(dir, { ...meta, files: [] });
+  return true;
+});
+
 ipcMain.handle('repair', (event, modpackId) => {
   fs.rmSync(path.join(instanceDir(String(modpackId)), META_FILE), { force: true });
   return true;
