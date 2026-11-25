@@ -790,3 +790,7 @@ input::placeholder {
 .discord-form .form-actions .hint {
   flex: 1;
 }
+
+.players-table .player-characters {
+  color: var(--emerald);
+}

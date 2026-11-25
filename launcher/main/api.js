@@ -80,6 +80,8 @@ module.exports = {
     request(baseUrl, '/api/auth/microsoft', { method: 'POST', body: { accessToken } }),
   loginOffline: (baseUrl, username) => request(baseUrl, '/api/auth/offline', { method: 'POST', body: { username } }),
   listModpacks: (baseUrl, token) => request(baseUrl, '/api/modpacks', { token }),
+  setCharacters: (baseUrl, token, characters) =>
+    request(baseUrl, '/api/me/characters', { method: 'PUT', token, body: { characters } }),
   getManifest: (baseUrl, token, modpackId) => request(baseUrl, `/api/modpacks/${modpackId}/manifest`, { token }),
   downloadMod: (baseUrl, token, modpackId, sha1, destPath) =>
     downloadFile(baseUrl, `/api/modpacks/${modpackId}/files/${sha1}`, token, destPath),

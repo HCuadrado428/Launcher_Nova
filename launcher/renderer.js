@@ -27,6 +27,10 @@ let lastProgress = null; // último aviso de esa preparación
 let firstInstall = false; // esa preparación es una primera instalación
 const running = new Set(); // modpacks con el juego abierto
 const logs = {}; // salida del juego, por modpack
+const runningAs = {}; // personaje con el que está abierto cada modpack (si lo hay)
+// Personajes del admin (nicks sin premium para el modpack de admins).
+let chars = { available: false, characters: [], selected: null, models: [] };
+let charDraft = []; // copia que se edita en el diálogo
 
 // Estado de un modpack: running | preparing | waiting (se prepara otro) | idle.
 function phaseOf(id = selectedId) {
@@ -420,6 +424,7 @@ async function loadModpacks() {
   renderModpacks();
   renderInfo();
   renderSplash();
+  loadCharacters();
 }
 
 function renderModpacks() {
@@ -450,6 +455,7 @@ function renderModpacks() {
   const modpack = modpacks.find((m) => m.id === selectedId);
   if (!modpack) return;
   document.querySelector('.stage').dataset.pack = modpack.id;
+  renderCharBox();
   $('packTag').textContent = t(i18n.LANGUAGES.es[`pack.tag.${modpack.id}`] ? `pack.tag.${modpack.id}` : 'pack.tag.other');
   $('packTitle').textContent = modpack.name;
   $('packDesc').textContent = modpack.description;
@@ -537,13 +543,15 @@ function renderPlayButton() {
 
   $('progressHint').hidden = !(phase === 'preparing' && firstInstall);
   if (phase === 'running') {
-    setProgress(t('play.running'), 100);
+    const as = runningAs[selectedId];
+    setProgress(as ? `${t('char.runningAs', { name: as })} ${t('play.running')}` : t('play.running'), 100);
   } else if (phase === 'preparing') {
     if (lastProgress) setProgress(lastProgress.label, lastProgress.percent, lastProgress.step, lastProgress.total);
     else setProgress(t('play.preparingLabel'), null);
   } else {
     $('progressBox').hidden = true;
   }
+  renderCharBox();
   renderConsole(true);
 }
 
@@ -611,8 +619,9 @@ bridge.onPlayProgress((progress) => {
   if (progress.modpackId === selectedId) setProgress(progress.label, progress.percent, progress.step, progress.total);
 });
 
-bridge.onGameStarted(({ id }) => {
+bridge.onGameStarted(({ id, character }) => {
   running.add(id);
+  runningAs[id] = character ? charName(character) : null;
   if (preparingId === id) preparingId = null;
   renderPlayButton();
   loadModpacks();
@@ -620,6 +629,7 @@ bridge.onGameStarted(({ id }) => {
 
 bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
   running.delete(modpackId);
+  delete runningAs[modpackId];
   if (updated) playtime = updated;
   if (modpacks.length > 0) renderModpacks();
   if (page === 'shots') refreshShots();
@@ -628,6 +638,147 @@ bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
 });
 
 bridge.onGameLog(addLog);
+
+// ---------- Personajes (modpack de admins) ----------
+
+// Nicks sin premium de un admin. Se elige uno en «Jugar como» y el juego se
+// abre con ese nick y con su modelo de CPM ya puesto.
+const charDialog = $('charDialog');
+
+function charName(nick) {
+  const character = chars.characters.find((c) => c.nick === nick);
+  return character && character.label ? `${character.label} (${nick})` : nick;
+}
+
+async function loadCharacters() {
+  try {
+    chars = await bridge.getCharacters();
+  } catch {
+    chars = { available: false, characters: [], selected: null, models: [] };
+  }
+  renderCharBox();
+}
+
+function renderCharBox() {
+  const box = $('charBox');
+  box.hidden = !(chars.available && selectedId === 'admin');
+  if (box.hidden) return;
+  const select = $('charSelect');
+  const option = (value, text) => {
+    const el = document.createElement('option');
+    el.value = value;
+    el.textContent = text;
+    return el;
+  };
+  select.replaceChildren(
+    option('', t('char.me', { name: state.account ? state.account.username : '' })),
+    ...chars.characters.map((c) => option(c.nick, charName(c.nick))),
+  );
+  select.value = chars.selected || '';
+  // Con el juego abierto o preparándose ya no se cambia con quién se entra.
+  select.disabled = isBusy('admin');
+  $('charManage').disabled = isBusy('admin');
+}
+
+$('charSelect').addEventListener('change', async (event) => {
+  try {
+    chars = await bridge.selectCharacter(event.target.value || null);
+  } catch (err) {
+    toast(errorText(err), 'error');
+  }
+  renderCharBox();
+});
+
+function charMessage(text) {
+  $('charError').textContent = text;
+  $('charError').hidden = !text;
+}
+
+function renderCharRows() {
+  $('charEmpty').hidden = charDraft.length > 0;
+  $('charRows').replaceChildren(
+    ...charDraft.map((character, index) => {
+      const li = document.createElement('li');
+      const field = (key, labelKey, attrs) => {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.spellcheck = false;
+        input.value = character[key] || '';
+        input.placeholder = t(labelKey);
+        input.setAttribute('aria-label', t(labelKey));
+        Object.assign(input, attrs);
+        input.addEventListener('input', () => {
+          character[key] = input.value;
+        });
+        return input;
+      };
+      const model = document.createElement('select');
+      model.setAttribute('aria-label', t('char.model'));
+      const option = (value, text) => {
+        const el = document.createElement('option');
+        el.value = value;
+        el.textContent = text;
+        model.append(el);
+      };
+      option('', t('char.noModel'));
+      for (const name of chars.models) option(name, name.replace(/\.cpmmodel$/, ''));
+      // Un modelo guardado que ya no está en la carpeta se sigue enseñando, avisando.
+      if (character.model && !chars.models.includes(character.model)) {
+        option(character.model, t('char.modelGone', { model: character.model.replace(/\.cpmmodel$/, '') }));
+      }
+      model.value = character.model || '';
+      model.addEventListener('change', () => {
+        character.model = model.value || null;
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn';
+      remove.textContent = t('char.remove');
+      remove.addEventListener('click', () => {
+        charDraft.splice(index, 1);
+        renderCharRows();
+      });
+      li.append(field('label', 'char.label', { maxLength: 40 }), field('nick', 'char.nick', { maxLength: 16 }), model, remove);
+      return li;
+    }),
+  );
+}
+
+$('charManage').addEventListener('click', async () => {
+  if (isBusy('admin')) {
+    toast(t('char.closeFirst'), 'error');
+    return;
+  }
+  await loadCharacters(); // por si han cambiado los modelos de la carpeta
+  charDraft = chars.characters.map((c) => ({ ...c }));
+  charMessage('');
+  renderCharRows();
+  charDialog.showModal();
+});
+
+$('charAdd').addEventListener('click', () => {
+  charDraft.push({ nick: '', label: '', model: null });
+  renderCharRows();
+  const inputs = $('charRows').querySelectorAll('li:last-child input');
+  if (inputs[0]) inputs[0].focus();
+});
+
+$('charClose').addEventListener('click', () => charDialog.close());
+
+$('charSave').addEventListener('click', async () => {
+  charMessage('');
+  $('charSave').disabled = true;
+  try {
+    chars = await bridge.saveCharacters(charDraft);
+    charDialog.close();
+    toast(t('char.saved'));
+  } catch (err) {
+    charMessage(errorText(err));
+  } finally {
+    $('charSave').disabled = false;
+    renderCharBox();
+  }
+});
 
 // ---------- Registros ----------
 

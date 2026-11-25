@@ -68,6 +68,9 @@ function looksLikeJar(file) {
   }
 }
 
+// Personajes (nicks sin premium) que puede tener cada admin.
+const MAX_CHARACTERS = 12;
+
 function createApp(options) {
   const {
     dataDir,
@@ -235,6 +238,30 @@ function createApp(options) {
   });
 
   app.get('/api/me', requirePlayer, (req, res) => res.json({ player: playerInfo(req.session) }));
+
+  // Personajes de un admin (nicks sin premium para el modpack de admins). El
+  // launcher manda la lista entera cada vez que cambia; aquí solo se guardan
+  // los nicks, para que el dueño los vea en el panel y no pisen a nadie.
+  app.put('/api/me/characters', requirePlayer, (req, res) => {
+    if (!isAdmin(req.session)) throw new HttpError(403, 'Los personajes son solo para cuentas admin.');
+    const list = req.body && req.body.characters;
+    if (!Array.isArray(list) || list.length > MAX_CHARACTERS) {
+      throw new HttpError(400, `Se pueden tener hasta ${MAX_CHARACTERS} personajes.`);
+    }
+    const nicks = [];
+    for (const nick of list) {
+      if (typeof nick !== 'string' || !/^\w{3,16}$/.test(nick)) {
+        throw new HttpError(400, 'Un nick tiene de 3 a 16 letras, números o guiones bajos.');
+      }
+      if (nicks.some((known) => known.toLowerCase() === nick.toLowerCase())) {
+        throw new HttpError(400, `El nick ${nick} está repetido.`);
+      }
+      nicks.push(nick);
+    }
+    const clash = store.setCharacters(playerKey(req.session), nicks);
+    if (clash) throw new HttpError(409, `El nick ${clash} ya lo usa otro jugador.`, { code: 'nick-taken', nick: clash });
+    res.json({ characters: nicks });
+  });
 
   app.get('/api/modpacks', requirePlayer, (req, res) => {
     const ids = isAdmin(req.session) ? MODPACK_IDS : ['normal'];

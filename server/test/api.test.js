@@ -565,3 +565,38 @@ test('una copia rota o ajena no cambia nada', async () => {
   assert.deepEqual(after.modpacks, before.modpacks);
   assert.deepEqual(fs.readdirSync(path.join(dataDir, 'tmp')), [], 'no quedan restos en tmp/');
 });
+
+test('los personajes son solo para admins y no pisan el nick de otro jugador', async () => {
+  const { owner, admin, player } = await login();
+  const put = (token, characters) => api('/api/me/characters', { method: 'PUT', token, body: { characters } });
+
+  // Sin estar en la lista de admins, ni una cuenta premium puede tenerlos.
+  await api('/api/panel/admins', { method: 'POST', token: owner, body: { nick: 'AdminNova' } });
+  assert.equal((await put(player, ['Herrera_Nik'])).status, 403);
+
+  const saved = await put(admin, ['Herrera_Nik', 'Maga_Nik']);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.data.characters, ['Herrera_Nik', 'Maga_Nik']);
+
+  // Nicks mal escritos, repetidos o demasiados.
+  assert.equal((await put(admin, ['a'])).status, 400);
+  assert.equal((await put(admin, ['con espacio'])).status, 400);
+  assert.equal((await put(admin, ['Maga_Nik', 'maga_nik'])).status, 400);
+  assert.equal((await put(admin, Array.from({ length: 13 }, (_, i) => `Nick_${i}`))).status, 400);
+
+  // El nick de otro jugador que ya usa el launcher no se puede coger.
+  const other = (await api('/api/me', { token: player })).data.player.name;
+  const clash = await put(admin, ['Herrera_Nik', other.toUpperCase()]);
+  assert.equal(clash.status, 409);
+  assert.equal(clash.data.code, 'nick-taken');
+
+  // El dueño los ve en el panel junto a la admin, y siguen ahí tras otra visita.
+  await api('/api/modpacks', { token: admin });
+  const state = (await api('/api/panel/state', { token: owner })).data;
+  const row = state.players.find((p) => p.admin);
+  assert.deepEqual(row.characters, ['Herrera_Nik', 'Maga_Nik']);
+
+  assert.equal((await put(admin, [])).status, 200);
+  const after = (await api('/api/panel/state', { token: owner })).data;
+  assert.equal(after.players.find((p) => p.admin).characters, undefined);
+});

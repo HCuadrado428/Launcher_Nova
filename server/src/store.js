@@ -301,8 +301,28 @@ function createStore(dataDir) {
         firstSeen: known ? known.firstSeen : stamp,
         lastSeen: stamp,
         launcherVersion: version,
+        ...(known && known.characters ? { characters: known.characters } : {}),
       };
       save();
+    },
+
+    // Personajes de un admin: nicks sin premium con los que entra desde el
+    // modpack de admins. Devuelve el nick que choca con otro jugador (su
+    // nick o uno de sus personajes), o null si se han guardado.
+    setCharacters(key, nicks) {
+      if (!data.players[key]) return null;
+      const taken = new Set();
+      for (const [other, player] of Object.entries(data.players)) {
+        if (other === key) continue;
+        taken.add(player.name.toLowerCase());
+        for (const nick of player.characters || []) taken.add(nick.toLowerCase());
+      }
+      const clash = nicks.find((nick) => taken.has(nick.toLowerCase()));
+      if (clash) return clash;
+      if (nicks.length > 0) data.players[key].characters = nicks;
+      else delete data.players[key].characters;
+      save();
+      return null;
     },
 
     listPlayers() {

@@ -15,6 +15,7 @@ const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
 const { memoryPlan, memoryForExtraGame } = require('./main/memory');
+const { listModels, selectModel, normalizeCharacters, findCharacter } = require('./main/characters');
 const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
 const modrinth = require('./main/modrinth');
 const importer = require('./main/importer');
@@ -196,6 +197,82 @@ ipcMain.handle('login-offline', async (event, username) => {
 ipcMain.handle('logout', () => {
   saveConfig({ account: null });
   return true;
+});
+
+// ============================================================================
+// PERSONAJES (nicks sin premium de un admin para el modpack de admins)
+// ============================================================================
+
+// Se guardan por cuenta: { [uuid]: { list: [{ nick, label, model }], selected: nick|null } }.
+function ownCharacters() {
+  const account = loadConfig().account;
+  const admin = account && account.type === 'microsoft' && account.player && account.player.admin;
+  if (!admin) return null;
+  const saved = (loadConfig().characters || {})[account.uuid] || {};
+  return { uuid: account.uuid, list: saved.list || [], selected: saved.selected || null };
+}
+
+function saveCharacters(uuid, value) {
+  saveConfig({ characters: { ...(loadConfig().characters || {}), [uuid]: value } });
+}
+
+// Personaje con el que se va a entrar, o null para entrar con la cuenta propia.
+function activeCharacter() {
+  const own = ownCharacters();
+  return own ? findCharacter(own.list, own.selected) : null;
+}
+
+function charactersState() {
+  const own = ownCharacters();
+  if (!own) return { available: false, characters: [], selected: null, models: [] };
+  const selected = findCharacter(own.list, own.selected);
+  return {
+    available: true,
+    characters: own.list,
+    selected: selected ? selected.nick : null,
+    models: listModels(instanceDir('admin')),
+  };
+}
+
+ipcMain.handle('get-characters', () => charactersState());
+
+ipcMain.handle('select-character', (event, nick) => {
+  const own = ownCharacters();
+  if (!own) throw new Error(t('char.onlyAdmins'));
+  const character = findCharacter(own.list, nick);
+  saveCharacters(own.uuid, { list: own.list, selected: character ? character.nick : null });
+  return charactersState();
+});
+
+ipcMain.handle('save-characters', async (event, list) => {
+  const own = ownCharacters();
+  if (!own) throw new Error(t('char.onlyAdmins'));
+  let characters;
+  try {
+    characters = normalizeCharacters(list);
+  } catch (err) {
+    if (err.code === 'nick') throw new Error(t('char.errNick', { nick: err.nick || '—' }));
+    if (err.code === 'repeated') throw new Error(t('char.errRepeated', { nick: err.nick }));
+    if (err.code === 'many') throw new Error(t('char.errMany'));
+    throw err;
+  }
+  // El servidor apunta los nicks (el dueño los ve en el panel) y avisa si
+  // alguno es de otro jugador.
+  try {
+    await withSession((token) =>
+      api.setCharacters(
+        backendUrl(),
+        token,
+        characters.map((c) => c.nick),
+      ),
+    );
+  } catch (err) {
+    if (err.status === 409 && err.data && err.data.nick) throw new Error(t('char.errTaken', { nick: err.data.nick }));
+    // Un servidor que aún no conoce los personajes (404) no impide usarlos.
+    if (err.status !== 404) throw err;
+  }
+  saveCharacters(own.uuid, { list: characters, selected: own.selected });
+  return charactersState();
 });
 
 // ============================================================================
@@ -555,7 +632,10 @@ async function play(modpackId) {
     onProgress: (p) => progress(2, p.label, p.percent),
   });
   if (java.warning) {
-    send('game-log', t('warn.java', { mc: manifest.mcVersion, wanted: java.warning.wanted, found: java.warning.found }));
+    send('game-log', {
+      modpackId,
+      line: t('warn.java', { mc: manifest.mcVersion, wanted: java.warning.wanted, found: java.warning.found }),
+    });
   }
 
   progress(3, t('prog.gameReady'));
@@ -586,7 +666,19 @@ async function play(modpackId) {
   send('modpack-synced', { id: modpackId, ...result });
 
   progress(5, t('prog.msLogin'));
-  const account = await refreshMicrosoft(loadConfig().account);
+  // En el modpack de admins se puede entrar como uno de los personajes del
+  // admin: un nick sin premium, con su modelo de CPM ya elegido. Que la cuenta
+  // es admin ya lo ha comprobado el servidor al dar el manifiesto.
+  const character = modpackId === 'admin' ? activeCharacter() : null;
+  let account;
+  if (character) {
+    account = { type: 'offline', username: character.nick };
+    if (character.model && !selectModel(dir, character.model)) {
+      send('game-log', { modpackId, line: t('char.modelMissing', { model: character.model }) });
+    }
+  } else {
+    account = await refreshMicrosoft(loadConfig().account);
+  }
   progress(5, t('prog.starting'));
   // Con otro modpack ya abierto, a este se le da la memoria que queda libre.
   const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
@@ -630,7 +722,7 @@ async function play(modpackId) {
   );
   // Si el juego se ha cerrado nada más arrancar, ya no se apunta como abierto.
   if (!game.closed) games.set(modpackId, game);
-  send('game-started', { id: modpackId });
+  send('game-started', { id: modpackId, character: character ? character.nick : null });
 }
 
 ipcMain.handle('play', async (event, modpackId) => {

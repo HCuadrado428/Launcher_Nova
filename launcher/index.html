@@ -103,6 +103,12 @@
             <p class="hero-desc" id="packDesc"></p>
             <p class="hero-playtime" id="playtime"></p>
             <p class="hero-state" id="packState"></p>
+            <!-- Solo en el modpack de admins: con qué nick se entra al juego. -->
+            <div class="char-box" id="charBox" hidden>
+              <label for="charSelect" data-i18n="char.playAs"></label>
+              <select id="charSelect"></select>
+              <button class="btn btn-small" type="button" id="charManage" data-i18n="char.manage"></button>
+            </div>
             <!-- Versiones, tamaño y fecha: al jugador no le hacen falta para jugar. -->
             <details class="pack-details">
               <summary data-i18n="pack.details"></summary>
@@ -313,6 +319,23 @@
       <div class="dialog-actions">
         <button class="btn" type="button" id="importClose" data-i18n="common.close"></button>
         <button class="btn btn-primary" type="button" id="importRun" disabled data-i18n="import.run"></button>
+      </div>
+    </dialog>
+
+    <!-- ---------- Personajes de un admin ---------- -->
+    <dialog class="settings char-dialog" id="charDialog" aria-labelledby="charTitle">
+      <h2 id="charTitle" data-i18n="char.title"></h2>
+      <p class="hint import-intro" data-i18n="char.hint"></p>
+      <ul class="char-rows" id="charRows"></ul>
+      <p class="hint" id="charEmpty" hidden data-i18n="char.empty"></p>
+      <div class="row">
+        <button class="btn" type="button" id="charAdd" data-i18n="char.add"></button>
+      </div>
+      <p class="hint" data-i18n="char.modelsHint"></p>
+      <p class="settings-error" id="charError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="charClose" data-i18n="common.close"></button>
+        <button class="btn btn-primary" type="button" id="charSave" data-i18n="common.save"></button>
       </div>
     </dialog>
 

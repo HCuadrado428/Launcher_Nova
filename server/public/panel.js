@@ -513,7 +513,14 @@ function playerRow(player) {
   name.textContent = player.name;
   const type = document.createElement('small');
   type.textContent = player.premium ? 'Cuenta Microsoft' : 'Sin premium';
-  cell(name, type);
+  const who = cell(name, type);
+  // Nicks sin premium con los que este admin entra desde el modpack de admins.
+  if (player.characters && player.characters.length > 0) {
+    const characters = document.createElement('small');
+    characters.className = 'player-characters';
+    characters.textContent = `Personajes: ${player.characters.join(', ')}`;
+    who.append(characters);
+  }
   cell(formatDate(player.lastSeen));
   cell(player.launcherVersion ? `v${player.launcherVersion}` : '—');
 
@@ -605,7 +612,10 @@ function renderPlayers() {
   const rows = document.getElementById('playerRows');
   if (rows.contains(document.activeElement) && document.activeElement.closest('.ban-box')) return;
   const players = state.players || [];
-  const shown = playerFilter ? players.filter((p) => p.name.toLowerCase().includes(playerFilter)) : players;
+  // El buscador también encuentra a un admin por el nick de sus personajes.
+  const shown = playerFilter
+    ? players.filter((p) => [p.name, ...(p.characters || [])].some((n) => n.toLowerCase().includes(playerFilter)))
+    : players;
   rows.replaceChildren(...shown.map(playerRow));
   document.getElementById('playersEmpty').hidden = players.length > 0;
   document.querySelector('.players-scroll').hidden = players.length === 0;
