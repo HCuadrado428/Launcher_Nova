@@ -291,8 +291,9 @@ function createApp(options) {
   app.get('/api/modpacks/:id/manifest', requirePlayer, (req, res) => {
     const modpack = accessibleModpack(req);
     if (typeof req.query.disabled === 'string') {
-      const optional = new Set(modpack.mods.filter((m) => m.optional).map((m) => m.modId || m.filename));
-      const keys = [...new Set(req.query.disabled.split(',').filter((key) => optional.has(key)))];
+      // Misma clave que usa el launcher: el modId, o el nombre del archivo, en minúsculas.
+      const optional = new Set(modpack.mods.filter((m) => m.optional).map((m) => String(m.modId || m.filename).toLowerCase()));
+      const keys = [...new Set(req.query.disabled.toLowerCase().split(',').filter((key) => optional.has(key)))];
       store.setDisabledMods(playerKey(req.session), modpack.id, keys);
     }
     res.json(store.publicModpack(modpack, { withMods: true }));

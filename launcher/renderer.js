@@ -31,6 +31,10 @@ const runningAs = {}; // personaje con el que está abierto cada modpack (si lo 
 // Personajes del admin (nicks sin premium para el modpack de admins).
 let chars = { available: false, characters: [], selected: null, models: [] };
 let charDraft = []; // copia que se edita en el diálogo
+const SECOND_SEAT = 'admin:2'; // segunda ventana del modpack de admins
+let seatOpening = false;
+let hasCurseforge = false; // el servidor permite buscar en CurseForge
+let modSource = 'modrinth';
 
 // Estado de un modpack: running | preparing | waiting (se prepara otro) | idle.
 function phaseOf(id = selectedId) {
@@ -39,7 +43,8 @@ function phaseOf(id = selectedId) {
   return preparingId ? 'waiting' : 'idle';
 }
 // ¿Se puede tocar la carpeta de ese modpack (mods, importar, reparar)?
-const isBusy = (id = selectedId) => running.has(id) || preparingId === id;
+const isBusy = (id = selectedId) =>
+  running.has(id) || preparingId === id || (id === 'admin' && (running.has(SECOND_SEAT) || seatOpening));
 const anyGame = () => preparingId !== null || running.size > 0;
 
 // ---------- Utilidades ----------
@@ -408,6 +413,8 @@ async function loadModpacks() {
     news = data.news;
     serverEvent = data.event;
     hasDiscord = Boolean(data.hasDiscord);
+    hasCurseforge = data.curseforge === true;
+    renderModSources();
     phrases = data.phrases || [];
     $('helpDiscord').hidden = !hasDiscord;
     $('crashDiscord').hidden = !hasDiscord;
@@ -589,6 +596,10 @@ $('playBtn').addEventListener('click', async () => {
     return;
   }
   if (phaseOf(id) !== 'idle') return;
+  if (id === 'admin' && (running.has(SECOND_SEAT) || seatOpening)) {
+    toast(t('char.closeSecond'), 'error');
+    return;
+  }
   preparingId = id;
   lastProgress = null;
   // La primera instalación es larga: se avisa para que nadie piense que se ha colgado.
@@ -634,7 +645,8 @@ bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
   if (modpacks.length > 0) renderModpacks();
   if (page === 'shots') refreshShots();
   renderPlayButton();
-  if (crash) showCrash(code, crash, modpackId);
+  // Los registros de la segunda ventana están con los del modpack de admins.
+  if (crash) showCrash(code, crash, modpackId === SECOND_SEAT ? 'admin' : modpackId);
 });
 
 bridge.onGameLog(addLog);
@@ -659,26 +671,89 @@ async function loadCharacters() {
   renderCharBox();
 }
 
+const modelOf = (file) => chars.models.find((model) => model.file === file) || null;
+// Nombre que se enseña de un modelo: el que lleva dentro, o el del archivo.
+const modelLabel = (model) => model.name || model.file.replace(/\.cpmmodel$/, '');
+
+function setIcon(img, file) {
+  const model = file ? modelOf(file) : null;
+  img.hidden = !(model && model.icon);
+  if (model && model.icon) img.src = model.icon;
+  else img.removeAttribute('src');
+}
+
+function charOption(value, text) {
+  const el = document.createElement('option');
+  el.value = value;
+  el.textContent = text;
+  return el;
+}
+
 function renderCharBox() {
   const box = $('charBox');
   box.hidden = !(chars.available && selectedId === 'admin');
+  renderSeatBox();
   if (box.hidden) return;
   const select = $('charSelect');
-  const option = (value, text) => {
-    const el = document.createElement('option');
-    el.value = value;
-    el.textContent = text;
-    return el;
-  };
   select.replaceChildren(
-    option('', t('char.me', { name: state.account ? state.account.username : '' })),
-    ...chars.characters.map((c) => option(c.nick, charName(c.nick))),
+    charOption('', t('char.me', { name: state.account ? state.account.username : '' })),
+    ...chars.characters.map((c) => charOption(c.nick, charName(c.nick))),
   );
   select.value = chars.selected || '';
+  const current = chars.characters.find((c) => c.nick === chars.selected);
+  setIcon($('charIcon'), current ? current.model : null);
   // Con el juego abierto o preparándose ya no se cambia con quién se entra.
   select.disabled = isBusy('admin');
   $('charManage').disabled = isBusy('admin');
 }
+
+// Segunda ventana: solo con el modpack de admins ya abierto y algún personaje
+// que no sea el que está dentro en la primera.
+function renderSeatBox() {
+  const box = $('seatBox');
+  const open = running.has(SECOND_SEAT);
+  const first = chars.characters.find((c) => charName(c.nick) === runningAs.admin);
+  const free = chars.characters.filter((c) => c !== first);
+  box.hidden = !(chars.available && selectedId === 'admin' && (open || seatOpening || (running.has('admin') && free.length > 0)));
+  if (box.hidden) return;
+  const select = $('seatSelect');
+  const button = $('seatBtn');
+  select.hidden = open;
+  $('seatRunning').hidden = !open;
+  if (open) {
+    $('seatRunning').textContent = runningAs[SECOND_SEAT] || '';
+    button.textContent = t('char.secondClose');
+    button.disabled = false;
+    return;
+  }
+  const previous = select.value;
+  select.replaceChildren(...free.map((c) => charOption(c.nick, charName(c.nick))));
+  if (free.some((c) => c.nick === previous)) select.value = previous;
+  select.disabled = seatOpening;
+  button.textContent = t(seatOpening ? 'char.secondOpening' : 'char.secondOpen');
+  // Mientras se prepara otro modpack hay que esperar, como con el botón de jugar.
+  button.disabled = seatOpening || preparingId !== null || free.length === 0;
+}
+
+$('seatBtn').addEventListener('click', async () => {
+  if (running.has(SECOND_SEAT)) {
+    bridge.stopGame(SECOND_SEAT);
+    return;
+  }
+  const nick = $('seatSelect').value;
+  if (!nick || seatOpening) return;
+  seatOpening = true;
+  renderPlayButton();
+  let result;
+  try {
+    result = await bridge.playSecond(nick);
+  } catch (err) {
+    result = { ok: false, message: errorText(err) };
+  }
+  seatOpening = false;
+  if (!result.ok) toast(result.message, 'error');
+  renderPlayButton();
+});
 
 $('charSelect').addEventListener('change', async (event) => {
   try {
@@ -712,6 +787,10 @@ function renderCharRows() {
         });
         return input;
       };
+      const icon = new Image(40, 40);
+      icon.className = 'char-icon';
+      icon.alt = '';
+      setIcon(icon, character.model);
       const model = document.createElement('select');
       model.setAttribute('aria-label', t('char.model'));
       const option = (value, text) => {
@@ -721,14 +800,15 @@ function renderCharRows() {
         model.append(el);
       };
       option('', t('char.noModel'));
-      for (const name of chars.models) option(name, name.replace(/\.cpmmodel$/, ''));
+      for (const item of chars.models) option(item.file, modelLabel(item));
       // Un modelo guardado que ya no está en la carpeta se sigue enseñando, avisando.
-      if (character.model && !chars.models.includes(character.model)) {
+      if (character.model && !modelOf(character.model)) {
         option(character.model, t('char.modelGone', { model: character.model.replace(/\.cpmmodel$/, '') }));
       }
       model.value = character.model || '';
       model.addEventListener('change', () => {
         character.model = model.value || null;
+        setIcon(icon, character.model);
       });
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -738,7 +818,10 @@ function renderCharRows() {
         charDraft.splice(index, 1);
         renderCharRows();
       });
-      li.append(field('label', 'char.label', { maxLength: 40 }), field('nick', 'char.nick', { maxLength: 16 }), model, remove);
+      const slot = document.createElement('span');
+      slot.className = 'char-icon-slot';
+      slot.append(icon);
+      li.append(slot, field('label', 'char.label', { maxLength: 40 }), field('nick', 'char.nick', { maxLength: 16 }), model, remove);
       return li;
     }),
   );
@@ -1022,6 +1105,7 @@ function openSettings() {
   $('textSizeSelect').value = String(s.textSize);
   $('themeSelect').value = s.theme;
   $('calmCheck').checked = s.calm;
+  $('eventAlertsCheck').checked = s.eventAlerts;
   syncMemoryControls(s.memoryGb);
   $('joinServerCheck').checked = s.joinServer;
   $('javaPath').value = s.javaPath;
@@ -1074,6 +1158,7 @@ $('settingsForm').addEventListener('submit', async (e) => {
       textSize: Number($('textSizeSelect').value),
       theme: $('themeSelect').value,
       calm: $('calmCheck').checked,
+      eventAlerts: $('eventAlertsCheck').checked,
       joinServer: $('joinServerCheck').checked,
       javaPath: $('javaPath').value,
       language: $('languageSelect').value,
@@ -1204,7 +1289,7 @@ async function runModSearch(query) {
   $('modSearchStatus').textContent = t('mods.search.searching');
   let results;
   try {
-    results = await bridge.searchMods(packId, query);
+    results = await bridge.searchMods(packId, query, modSource);
   } catch (err) {
     if (token !== searchToken) return;
     $('modSearchStatus').textContent = errorText(err);
@@ -1240,7 +1325,10 @@ async function runModSearch(query) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn';
-      if (mod.inPack || mod.installed) {
+      if (mod.blocked) {
+        button.disabled = true;
+        button.textContent = t('mods.search.cfBlocked');
+      } else if (mod.inPack || mod.installed) {
         button.disabled = true;
         button.textContent = t(mod.inPack ? 'mods.search.inPack' : 'mods.search.installed');
       } else {
@@ -1249,7 +1337,7 @@ async function runModSearch(query) {
           button.disabled = true;
           button.textContent = t('mods.search.installing');
           try {
-            const installed = await bridge.installMod(packId, mod.id);
+            const installed = await bridge.installMod(packId, mod.id, mod.title);
             button.textContent = t('mods.search.installed');
             toast(
               installed.length > 1
@@ -1269,6 +1357,24 @@ async function runModSearch(query) {
     }),
   );
 }
+
+// Modrinth o CurseForge. CurseForge solo sale si el servidor tiene su clave.
+function renderModSources() {
+  if (!hasCurseforge) modSource = 'modrinth';
+  $('modSources').hidden = !hasCurseforge;
+  $('modSearchCfHint').hidden = modSource !== 'curseforge';
+  for (const button of $('modSources').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.source === modSource));
+  }
+}
+
+$('modSources').addEventListener('click', (e) => {
+  const button = e.target.closest('button[data-source]');
+  if (!button || button.dataset.source === modSource) return;
+  modSource = button.dataset.source;
+  renderModSources();
+  runModSearch($('modSearchInput').value.trim());
+});
 
 $('modSearchForm').addEventListener('submit', (e) => {
   e.preventDefault();

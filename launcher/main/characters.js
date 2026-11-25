@@ -43,6 +43,70 @@ function listModels(instanceDir) {
   return found.sort((a, b) => a.localeCompare(b));
 }
 
+// Nombre e icono que el propio modelo lleva dentro. Un .cpmmodel es: un byte
+// 0x53, el nombre y la descripción (cada uno con su longitud delante), los
+// datos del modelo y, al final, su icono en PNG. El icono se busca por la
+// firma PNG (la última del archivo) para no depender del resto del formato.
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const MAX_MODEL_BYTES = 24 * 1024 * 1024;
+const MAX_ICON_BYTES = 400 * 1024;
+
+function readVarInt(buffer, offset) {
+  let value = 0;
+  for (let i = 0; i < 5; i++) {
+    const byte = buffer[offset + i];
+    if (byte === undefined) return null;
+    value |= (byte & 0x7f) << (7 * i);
+    if ((byte & 0x80) === 0) return { value, next: offset + i + 1 };
+  }
+  return null;
+}
+
+// Recorre los trozos del PNG hasta IEND para saber dónde acaba y qué mide.
+function pngAt(buffer, start) {
+  if (buffer.length < start + 33 || buffer.toString('latin1', start + 12, start + 16) !== 'IHDR') return null;
+  const width = buffer.readUInt32BE(start + 16);
+  const height = buffer.readUInt32BE(start + 20);
+  if (width < 1 || height < 1 || width > 256 || height > 256) return null;
+  let pos = start + 8;
+  while (pos + 12 <= buffer.length && pos - start <= MAX_ICON_BYTES) {
+    const length = buffer.readUInt32BE(pos);
+    const type = buffer.toString('latin1', pos + 4, pos + 8);
+    pos += 12 + length;
+    if (type === 'IEND') return pos <= buffer.length ? buffer.subarray(start, pos) : null;
+  }
+  return null;
+}
+
+function modelInfo(file) {
+  const info = { name: '', icon: null };
+  let buffer;
+  try {
+    if (fs.statSync(file).size > MAX_MODEL_BYTES) return info;
+    buffer = fs.readFileSync(file);
+  } catch {
+    return info;
+  }
+  if (buffer[0] === 0x53) {
+    const length = readVarInt(buffer, 1);
+    if (length && length.value > 0 && length.value <= 200 && length.next + length.value <= buffer.length) {
+      info.name = buffer.toString('utf8', length.next, length.next + length.value).replace(/[\u0000-\u001f]/g, '').trim();
+    }
+  }
+  const at = buffer.lastIndexOf(PNG_SIGNATURE);
+  const png = at === -1 ? null : pngAt(buffer, at);
+  if (png) info.icon = `data:image/png;base64,${png.toString('base64')}`;
+  return info;
+}
+
+// Lo que enseña el launcher de cada modelo: archivo, nombre e icono.
+function describeModels(instanceDir) {
+  return listModels(instanceDir).map((file) => ({
+    file,
+    ...modelInfo(path.join(instanceDir, MODELS_DIR, ...file.split('/'))),
+  }));
+}
+
 // Un modelo solo vale si es uno de los que hay en la carpeta (nada de rutas
 // que salgan de ella).
 const hasModel = (instanceDir, model) => typeof model === 'string' && listModels(instanceDir).includes(model);
@@ -87,4 +151,13 @@ function normalizeCharacters(list) {
 const findCharacter = (characters, nick) =>
   (characters || []).find((c) => c.nick.toLowerCase() === String(nick || '').toLowerCase()) || null;
 
-module.exports = { MAX_CHARACTERS, validNick, listModels, selectModel, normalizeCharacters, findCharacter };
+module.exports = {
+  MAX_CHARACTERS,
+  validNick,
+  listModels,
+  describeModels,
+  modelInfo,
+  selectModel,
+  normalizeCharacters,
+  findCharacter,
+};

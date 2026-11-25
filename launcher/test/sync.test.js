@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../../server/src/app');
+const { makeZip } = require('../../server/testlib/zip');
 const api = require('../main/api');
 const { syncMods, planSync, loadMeta, safeModFilename, modKey } = require('../main/sync');
 const { forgeJar } = require('../../server/testlib/zip');
@@ -228,4 +229,85 @@ test('un opcional desactivado no se baja, ni vuelve cuando el dueño lo actualiz
   const on = await sync(token, 'normal', dir, []);
   assert.equal(on.downloaded, 1);
   assert.deepEqual(modsIn(dir), ['create-0.5.1.jar', 'journeymap-5.10.4.jar']);
+});
+
+async function uploadExtras(files) {
+  const form = new FormData();
+  form.append('target', 'zip');
+  form.append('file', new Blob([await makeZip(files)]), 'extras.zip');
+  const res = await fetch(`${base}/api/panel/modpacks/normal/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    body: form,
+  });
+  assert.ok(res.ok, `subida de archivos -> ${res.status}`);
+}
+
+test('config y recursos: se reparten, y lo que retoca el jugador se respeta hasta que el dueño lo cambia', async () => {
+  const { token } = await api.loginOffline(base, 'Jugador_cfg');
+  const dir = path.join(tmp, 'inst-config');
+  const read = (name) => fs.readFileSync(path.join(dir, ...name.split('/')), 'utf8');
+  const write = (name, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, ...name.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(dir, ...name.split('/')), text);
+  };
+
+  // El mod ya había creado su config por defecto antes de que el dueño subiera la suya.
+  write('config/create/common.toml', 'por defecto');
+  write('config/otro-mod.toml', 'no es del modpack');
+  await uploadExtras({
+    'config/create/common.toml': 'velocidad = 2',
+    'config/jei.toml': 'modo = 1',
+    'resourcepacks/Nova.zip': 'paquete v1',
+  });
+  const first = await sync(token, 'normal', dir);
+  assert.equal(first.files, 3);
+  assert.equal(read('config/create/common.toml'), 'velocidad = 2');
+  assert.equal(read('resourcepacks/Nova.zip'), 'paquete v1');
+  assert.equal(read('config/otro-mod.toml'), 'no es del modpack');
+  assert.equal(first.progress.at(-1).doneFiles, first.progress.at(-1).totalFiles);
+
+  // El jugador retoca una config: mientras el dueño no la cambie, se queda como él la dejó.
+  write('config/jei.toml', 'modo = 2 (a mi gusto)');
+  assert.equal((await sync(token, 'normal', dir)).files, 0);
+  assert.equal(read('config/jei.toml'), 'modo = 2 (a mi gusto)');
+
+  // El dueño cambia esa config y el paquete de recursos, y deja de repartir create.
+  await uploadExtras({ 'config/jei.toml': 'modo = 3', 'resourcepacks/Nova.zip': 'paquete v2' });
+  await panel('/api/panel/modpacks/normal/files/remove', { body: { paths: ['config/create'] } });
+  // ...y el jugador borra por error el paquete de recursos.
+  fs.rmSync(path.join(dir, 'resourcepacks', 'Nova.zip'));
+  const update = await sync(token, 'normal', dir);
+  assert.equal(update.files, 2);
+  assert.equal(update.filesDeleted, 1);
+  assert.equal(read('config/jei.toml'), 'modo = 3');
+  assert.equal(read('resourcepacks/Nova.zip'), 'paquete v2');
+  assert.ok(!fs.existsSync(path.join(dir, 'config', 'create', 'common.toml')), 'lo que ya no se reparte y no se ha tocado, se quita');
+
+  // Lo que deja de repartirse pero el jugador había retocado, se le deja.
+  write('config/jei.toml', 'modo = 4 (mío)');
+  await panel('/api/panel/modpacks/normal/files/remove', { body: { paths: ['config/jei.toml'] } });
+  const last = await sync(token, 'normal', dir);
+  assert.equal(last.filesDeleted, 0);
+  assert.equal(read('config/jei.toml'), 'modo = 4 (mío)');
+  assert.deepEqual(
+    loadMeta(dir).files.map((f) => f.path),
+    ['resourcepacks/Nova.zip'],
+  );
+  await panel('/api/panel/modpacks/normal/files/remove', { body: { paths: ['resourcepacks'] } });
+});
+
+test('un archivo del manifiesto que sale de sus carpetas se rechaza', async () => {
+  const dir = path.join(tmp, 'inst-rutas');
+  for (const bad of ['../fuera.txt', 'mods/troyano.jar', 'config/../../fuera', 'config\\x.toml', 'options.txt', '/etc/passwd']) {
+    await assert.rejects(
+      syncMods({
+        instanceDir: dir,
+        manifest: { versionHash: 'x', mods: [], files: [{ path: bad, sha1: 'a'.repeat(40), size: 1 }] },
+        download: async () => assert.fail('no debe descargar nada'),
+      }),
+      undefined,
+      bad,
+    );
+  }
 });

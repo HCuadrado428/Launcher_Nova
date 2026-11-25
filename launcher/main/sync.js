@@ -23,9 +23,13 @@ function sha1File(file) {
 function loadMeta(instanceDir) {
   try {
     const meta = JSON.parse(fs.readFileSync(path.join(instanceDir, META_FILE), 'utf8'));
-    return { versionHash: meta.versionHash || null, mods: Array.isArray(meta.mods) ? meta.mods : [] };
+    return {
+      versionHash: meta.versionHash || null,
+      mods: Array.isArray(meta.mods) ? meta.mods : [],
+      files: Array.isArray(meta.files) ? meta.files : [],
+    };
   } catch {
-    return { versionHash: null, mods: [] };
+    return { versionHash: null, mods: [], files: [] };
   }
 }
 
@@ -44,6 +48,48 @@ function safeModFilename(filename) {
     !filename.includes('\\') &&
     !filename.startsWith('.')
   );
+}
+
+// Carpetas del juego a las que el modpack puede mandar archivos sueltos
+// (config, recursos, shaders). Las mismas que acepta el panel.
+const EXTRA_ROOTS = ['config', 'defaultconfigs', 'kubejs', 'resourcepacks', 'shaderpacks'];
+
+// Igual que con los mods: la ruta viene del servidor, pero no se usa sin
+// comprobar que se queda dentro de una de esas carpetas.
+function safeExtraPath(filePath) {
+  if (typeof filePath !== 'string' || filePath.length > 200 || filePath.includes('\\')) return false;
+  const parts = filePath.split('/');
+  if (parts.length < 2 || !EXTRA_ROOTS.includes(parts[0])) return false;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: se rechazan a propósito
+  return parts.every((part) => part && part !== '.' && part !== '..' && !/[\u0000-\u001f<>:"|?*]/.test(part));
+}
+
+// Qué archivos sueltos hay que bajar y cuáles borrar.
+//  - Se baja uno cuando falta, o cuando el dueño lo ha cambiado en el panel
+//    desde la última vez que se le puso al jugador. Si el jugador lo ha
+//    retocado después y en el panel sigue igual, se respeta lo suyo.
+//  - Se borra uno que el modpack ya no reparte solo si el jugador no lo ha
+//    tocado (sigue siendo el que se le puso).
+// localFiles: [{ path, sha1 }] del meta. current(path): sha1 del archivo en
+// disco, o null si no está.
+async function planFiles(localFiles, remoteFiles, current) {
+  const remoteByPath = new Map(remoteFiles.map((f) => [f.path.toLowerCase(), f]));
+  const localByPath = new Map(localFiles.map((f) => [f.path.toLowerCase(), f]));
+  const toDownload = [];
+  const kept = [];
+  for (const file of remoteFiles) {
+    const local = localByPath.get(file.path.toLowerCase());
+    const onDisk = await current(file.path);
+    if (onDisk === file.sha1) kept.push(file);
+    else if (onDisk && local && local.sha1 === file.sha1) kept.push(file); // retocado por el jugador
+    else toDownload.push(file);
+  }
+  const toDelete = [];
+  for (const local of localFiles) {
+    if (remoteByPath.has(local.path.toLowerCase())) continue;
+    if ((await current(local.path)) === local.sha1) toDelete.push(local);
+  }
+  return { toDownload, toDelete, kept };
 }
 
 // Clave con la que se recuerda que un jugador ha quitado un mod opcional: el
@@ -105,15 +151,37 @@ async function syncMods({ instanceDir, manifest, download, disabled = [], onProg
 
   // Un opcional desactivado no se baja; si ya estaba bajado, se borra como
   // cualquier mod que deja de estar en la lista.
+  const remoteFiles = Array.isArray(manifest.files) ? manifest.files : [];
+  for (const file of remoteFiles) {
+    if (!safeExtraPath(file.path) || !/^[a-f0-9]{40}$/.test(file.sha1)) {
+      throw new Error(t('err.badFile', { name: String(file.path).slice(0, 80) }));
+    }
+  }
+
   const remoteMods = wantedMods(manifest.mods, disabled);
   const meta = loadMeta(instanceDir);
   const { toDelete, toDownload } = planSync(meta.mods, remoteMods, fs.readdirSync(modsDir));
+
+  // Archivos sueltos (config, recursos, shaders).
+  const currentSha1 = async (filePath) => {
+    const full = path.join(instanceDir, ...filePath.split('/'));
+    try {
+      return fs.statSync(full).isFile() ? await sha1File(full) : null;
+    } catch {
+      return null;
+    }
+  };
+  const knownFiles = meta.files.filter((f) => safeExtraPath(f.path));
+  const filePlan = await planFiles(knownFiles, remoteFiles, currentSha1);
+  for (const file of filePlan.toDelete) fs.rmSync(path.join(instanceDir, ...file.path.split('/')), { force: true });
+  const syncedFiles = new Map(filePlan.kept.map((f) => [f.path.toLowerCase(), f]));
 
   for (const mod of toDelete) {
     if (safeModFilename(mod.filename)) fs.rmSync(path.join(modsDir, mod.filename), { force: true });
   }
 
-  const totalBytes = toDownload.reduce((sum, m) => sum + (m.size || 0), 0);
+  const totalBytes = [...toDownload, ...filePlan.toDownload].reduce((sum, m) => sum + (m.size || 0), 0);
+  const totalFiles = toDownload.length + filePlan.toDownload.length;
   let doneBytes = 0;
   let doneFiles = 0;
   // El meta se va guardando mod a mod: si la descarga se corta a mitad, la
@@ -125,10 +193,11 @@ async function syncMods({ instanceDir, manifest, download, disabled = [], onProg
     saveMeta(instanceDir, {
       versionHash,
       mods: [...synced.values()].map(({ filename, sha1, size }) => ({ filename, sha1, size })),
+      files: [...syncedFiles.values()].map(({ path: filePath, sha1 }) => ({ path: filePath, sha1 })),
     });
   persist(null);
 
-  onProgress({ doneFiles, totalFiles: toDownload.length, doneBytes, totalBytes, filename: null });
+  onProgress({ doneFiles, totalFiles, doneBytes, totalBytes, filename: null });
   await runLimited(toDownload, DOWNLOAD_CONCURRENCY, async (mod) => {
     const dest = path.join(modsDir, mod.filename);
     const tmp = `${dest}.descargando`;
@@ -144,11 +213,46 @@ async function syncMods({ instanceDir, manifest, download, disabled = [], onProg
     persist(null);
     doneFiles++;
     doneBytes += mod.size || 0;
-    onProgress({ doneFiles, totalFiles: toDownload.length, doneBytes, totalBytes, filename: mod.filename });
+    onProgress({ doneFiles, totalFiles, doneBytes, totalBytes, filename: mod.filename });
+  });
+
+  await runLimited(filePlan.toDownload, DOWNLOAD_CONCURRENCY, async (file) => {
+    const dest = path.join(instanceDir, ...file.path.split('/'));
+    const tmp = `${dest}.descargando`;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    try {
+      await download(file, tmp);
+      const actual = await sha1File(tmp);
+      if (actual !== file.sha1) throw new Error(t('err.damaged', { name: file.path }));
+      fs.renameSync(tmp, dest);
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+    syncedFiles.set(file.path.toLowerCase(), file);
+    persist(null);
+    doneFiles++;
+    doneBytes += file.size || 0;
+    onProgress({ doneFiles, totalFiles, doneBytes, totalBytes, filename: file.path });
   });
 
   persist(manifest.versionHash);
-  return { downloaded: toDownload.length, deleted: toDelete.length };
+  return {
+    downloaded: toDownload.length,
+    deleted: toDelete.length,
+    files: filePlan.toDownload.length,
+    filesDeleted: filePlan.toDelete.length,
+  };
 }
 
-module.exports = { syncMods, planSync, loadMeta, saveMeta, safeModFilename, modKey, wantedMods, META_FILE };
+module.exports = {
+  syncMods,
+  planSync,
+  planFiles,
+  loadMeta,
+  saveMeta,
+  safeModFilename,
+  safeExtraPath,
+  modKey,
+  wantedMods,
+  META_FILE,
+};

@@ -1,4 +1,16 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, protocol, nativeImage, clipboard } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Menu,
+  screen,
+  protocol,
+  nativeImage,
+  clipboard,
+  Notification,
+} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -15,7 +27,10 @@ const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
 const { memoryPlan, memoryForExtraGame } = require('./main/memory');
-const { listModels, selectModel, normalizeCharacters, findCharacter } = require('./main/characters');
+const { describeModels, selectModel, normalizeCharacters, findCharacter } = require('./main/characters');
+const { prepareSeat } = require('./main/seat');
+const { dueAlert } = require('./main/events');
+const curseforge = require('./main/curseforge');
 const { listScreenshots, shotPath, screenshotsDir, addPlaytime } = require('./main/screenshots');
 const modrinth = require('./main/modrinth');
 const importer = require('./main/importer');
@@ -29,9 +44,15 @@ const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 const MS_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 let mainWindow = null;
-// Juegos abiertos, por modpack: { child, startedAt, log, memoryGb, stoppedByUser }.
+// Juegos abiertos, por modpack: { child, startedAt, log, memoryGb, stoppedByUser,
+// nick, versionId, javaPath }. El modpack de admins puede tener además una
+// segunda ventana con otro personaje, con la clave SECOND_SEAT.
 // Puede haber uno por modpack a la vez (un admin con el normal y el de admins).
 const games = new Map();
+const SECOND_SEAT = 'admin:2';
+const SECOND_SEAT_DIR = 'admin-2';
+// ¿Hay algún juego usando la carpeta de ese modpack?
+const packInUse = (id) => games.has(id) || (id === 'admin' && games.has(SECOND_SEAT));
 let busy = false; // hay una preparación/lanzamiento en marcha (de una en una)
 // Invitación al Discord que da el backend (se comprueba antes de abrirla).
 const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
@@ -70,6 +91,8 @@ function settings() {
     textSize: textSize(),
     theme: THEMES.includes(cfg.theme) ? cfg.theme : THEMES[0],
     calm: cfg.calm === true,
+    // Avisar del próximo evento con una notificación del sistema.
+    eventAlerts: cfg.eventAlerts !== false,
     backendUrl: backendUrl(),
     backendConfigured: !backendUrl().includes('CAMBIA-ESTO'),
   };
@@ -230,11 +253,20 @@ function charactersState() {
     available: true,
     characters: own.list,
     selected: selected ? selected.nick : null,
-    models: listModels(instanceDir('admin')),
+    models: describeModels(instanceDir('admin')),
   };
 }
 
 ipcMain.handle('get-characters', () => charactersState());
+
+// Personajes que el dueño ha quitado desde el panel: se van de la lista.
+function dropBlockedCharacters(blocked) {
+  const own = ownCharacters();
+  if (!own || !Array.isArray(blocked) || blocked.length === 0) return;
+  const gone = new Set(blocked.map((nick) => String(nick).toLowerCase()));
+  const list = own.list.filter((character) => !gone.has(character.nick.toLowerCase()));
+  if (list.length !== own.list.length) saveCharacters(own.uuid, { list, selected: own.selected });
+}
 
 ipcMain.handle('select-character', (event, nick) => {
   const own = ownCharacters();
@@ -267,7 +299,9 @@ ipcMain.handle('save-characters', async (event, list) => {
       ),
     );
   } catch (err) {
-    if (err.status === 409 && err.data && err.data.nick) throw new Error(t('char.errTaken', { nick: err.data.nick }));
+    if (err.status === 409 && err.data && err.data.nick) {
+      throw new Error(t(err.data.code === 'nick-blocked' ? 'char.errBlocked' : 'char.errTaken', { nick: err.data.nick }));
+    }
     // Un servidor que aún no conoce los personajes (404) no impide usarlos.
     if (err.status !== 404) throw err;
   }
@@ -305,7 +339,12 @@ ipcMain.handle('get-modpacks', async () => {
   discordUrl = DISCORD_URL_RE.test(data.discordUrl || '') ? data.discordUrl : '';
   const cfg = loadConfig();
   if (cfg.account) saveConfig({ account: { ...cfg.account, player: data.player } });
+  dropBlockedCharacters(data.blockedCharacters);
+  nextEvent = data.event || null;
+  checkEventAlert();
   return {
+    // El servidor tiene clave de CurseForge: se puede buscar también allí.
+    curseforge: data.curseforge === true,
     account: publicAccount(loadConfig().account),
     news: data.news || null,
     event: data.event || null,
@@ -465,25 +504,51 @@ ipcMain.handle('remove-own-mod', async (event, { modpackId, filename }) => {
   return true;
 });
 
-// Buscar mods de cliente en Modrinth para la versión del modpack. Cada
-// resultado dice si ya está instalado o si ya viene en el modpack.
-ipcMain.handle('search-mods', async (event, { modpackId, query }) => {
+// Buscar mods de cliente para la versión del modpack, en Modrinth o en
+// CurseForge (source). Cada resultado dice si ya está instalado o si ya
+// viene en el modpack.
+ipcMain.handle('search-mods', async (event, { modpackId, query, source }) => {
   const id = String(modpackId);
   const manifest = await fetchManifest(id);
-  const results = await modrinth.searchMods({ query, mcVersion: manifest.mcVersion, loader: manifest.loader });
+  const text = String(query || '').trim().slice(0, 80);
+  let results;
+  if (source === 'curseforge') {
+    const data = await withSession((token) => api.searchCurseforge(backendUrl(), token, text, manifest.mcVersion));
+    results = curseforge.searchResults(data.hits);
+  } else {
+    results = await modrinth.searchMods({ query: text, mcVersion: manifest.mcVersion, loader: manifest.loader });
+  }
   const installed = modrinth.installedProjects(instanceDir(id));
   const packNames = new Set(manifest.mods.map((m) => modrinth.normalizeName(m.modId)).filter(Boolean));
   return results.map((result) => ({
     ...result,
     installed: Object.hasOwn(installed, result.id),
-    inPack: packNames.has(modrinth.normalizeName(result.slug)),
+    inPack: Boolean(result.slug) && packNames.has(modrinth.normalizeName(result.slug)),
   }));
 });
 
-ipcMain.handle('install-mod', async (event, { modpackId, projectId }) => {
+ipcMain.handle('install-mod', async (event, { modpackId, projectId, title }) => {
   const id = String(modpackId);
-  if (busy || games.has(id)) throw new Error(t('mods.closeFirst'));
+  if (busy || packInUse(id)) throw new Error(t('mods.closeFirst'));
   const manifest = await fetchManifest(id);
+  if (curseforge.isCurseforgeId(projectId)) {
+    const modId = projectId.slice(curseforge.PREFIX.length);
+    let file;
+    try {
+      file = await withSession((token) => api.curseforgeFile(backendUrl(), token, modId, manifest.mcVersion));
+    } catch (err) {
+      if (err.data && err.data.code === 'no-distribution') throw new Error(t('err.cfBlocked'));
+      if (err.status === 404) throw new Error(t('err.modNoVersion', { title: String(title || ''), mc: manifest.mcVersion }));
+      throw err;
+    }
+    return curseforge.installMod({
+      projectId,
+      title: String(title || '').slice(0, 80),
+      file,
+      manifestMods: manifest.mods,
+      instanceDir: instanceDir(id),
+    });
+  }
   return modrinth.installMod({
     projectId: String(projectId),
     mcVersion: manifest.mcVersion,
@@ -532,7 +597,7 @@ ipcMain.handle('import-pick', async (event, modpackId) => {
 });
 
 ipcMain.handle('import-run', async (event, { modpackId, from, categories }) => {
-  if (busy || games.has(String(modpackId))) throw new Error(t('play.closeFirst'));
+  if (busy || packInUse(String(modpackId))) throw new Error(t('play.closeFirst'));
   if (!importSources.has(from)) throw new Error(t('err.importSource'));
   const wanted = Array.isArray(categories) ? categories.map(String) : [];
   try {
@@ -621,7 +686,8 @@ async function play(modpackId) {
   const dir = instanceDir(modpackId);
 
   progress(1, t('prog.checkPack'));
-  const manifest = await withSession((token) => api.getManifest(backendUrl(), token, modpackId));
+  // De paso se cuenta al servidor qué opcionales están desactivados (estadísticas del panel).
+  const manifest = await withSession((token) => api.getManifest(backendUrl(), token, modpackId, disabledMods(modpackId)));
   if (manifest.loader !== 'forge') throw new Error(t('err.onlyForge'));
 
   progress(2, t('prog.javaReady'));
@@ -683,7 +749,17 @@ async function play(modpackId) {
   // Con otro modpack ya abierto, a este se le da la memoria que queda libre.
   const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
   const memoryGb = memoryForExtraGame(os.totalmem(), cfg, usedGb);
-  const game = { child: null, startedAt: Date.now(), log: [], memoryGb, stoppedByUser: false };
+  const game = {
+    child: null,
+    startedAt: Date.now(),
+    log: [],
+    memoryGb,
+    stoppedByUser: false,
+    // Nick con el que está dentro (para no abrir el mismo en la segunda ventana).
+    nick: account.type === 'microsoft' ? account.mclcAuth.name : account.username,
+    versionId,
+    javaPath: java.javaPath,
+  };
   lastLogs.set(modpackId, game.log);
   game.child = await launchGame(
     {
@@ -729,7 +805,7 @@ ipcMain.handle('play', async (event, modpackId) => {
   const id = String(modpackId);
   // Se prepara un modpack cada vez (comparten descargas), y cada modpack solo
   // puede estar abierto una vez (es una única carpeta de juego).
-  if (busy || games.has(id)) return { ok: false, message: t('err.busy') };
+  if (busy || packInUse(id)) return { ok: false, message: t('err.busy') };
   busy = true;
   try {
     await play(id);
@@ -738,6 +814,78 @@ ipcMain.handle('play', async (event, modpackId) => {
     console.error('[ERROR] No se pudo lanzar el juego:', err);
     // 403 = la cuenta ya no tiene acceso a ese modpack (p.ej. dejó de ser admin).
     return { ok: false, message: err.message || String(err), accessLost: err.status === 403 };
+  } finally {
+    busy = false;
+  }
+});
+
+// Abre una segunda ventana del modpack de admins con otro personaje, mientras
+// la primera sigue abierta. Usa una carpeta espejo (main/seat.js): mismos
+// mods y mundos, configuración copiada, y su propio modelo de CPM.
+async function playSecond(nick) {
+  const first = games.get('admin');
+  if (!first) throw new Error(t('char.secondNeedsFirst'));
+  const own = ownCharacters();
+  const character = own ? findCharacter(own.list, nick) : null;
+  if (!character) throw new Error(t('char.onlyAdmins'));
+  if (first.nick && first.nick.toLowerCase() === character.nick.toLowerCase()) throw new Error(t('char.secondSame'));
+  // El servidor confirma que la cuenta sigue siendo admin antes de abrir nada.
+  await withSession((token) => api.getManifest(backendUrl(), token, 'admin'));
+
+  const mainDir = instanceDir('admin');
+  const dir = instanceDir(SECOND_SEAT_DIR);
+  prepareSeat(mainDir, dir);
+  const log = (line) => {
+    first.log.push(line);
+    send('game-log', { modpackId: 'admin', line });
+  };
+  if (character.model && !selectModel(dir, character.model)) log(t('char.modelMissing', { model: character.model }));
+
+  const cfg = settings();
+  const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
+  const memoryGb = memoryForExtraGame(os.totalmem(), cfg, usedGb);
+  const game = { child: null, startedAt: Date.now(), log: [], memoryGb, stoppedByUser: false, nick: character.nick };
+  game.child = await launchGame(
+    {
+      account: { type: 'offline', username: character.nick },
+      gameRoot: GAME_ROOT,
+      instanceDir: dir,
+      versionId: first.versionId,
+      javaPath: first.javaPath,
+      memoryGb,
+      serverAddress: SERVER_ADDRESS,
+      joinOnStart: false,
+      freeMenu: true,
+    },
+    {
+      // Sus líneas salen en la consola del modpack de admins, marcadas.
+      onLog: (line) => {
+        game.log.push(line);
+        if (game.log.length > MAX_GAME_LOG_LINES) game.log.splice(0, game.log.length - MAX_GAME_LOG_LINES);
+        send('game-log', { modpackId: 'admin', line: `[2] ${line}` });
+      },
+      onClose: (code) => {
+        game.closed = true;
+        games.delete(SECOND_SEAT);
+        const failed = code !== 0 && !game.stoppedByUser;
+        const crash = failed ? analyzeCrash({ instanceDir: dir, since: game.startedAt - 5000, logLines: game.log }) : null;
+        send('game-closed', { code, crash, modpackId: SECOND_SEAT });
+      },
+    },
+  );
+  if (!game.closed) games.set(SECOND_SEAT, game);
+  send('game-started', { id: SECOND_SEAT, character: character.nick });
+}
+
+ipcMain.handle('play-second', async (event, nick) => {
+  if (busy || games.has(SECOND_SEAT)) return { ok: false, message: t('err.busy') };
+  busy = true;
+  try {
+    await playSecond(String(nick || ''));
+    return { ok: true };
+  } catch (err) {
+    console.error('[ERROR] No se pudo abrir la segunda ventana:', err);
+    return { ok: false, message: err.message || String(err) };
   } finally {
     busy = false;
   }
@@ -763,6 +911,7 @@ ipcMain.handle('save-settings', (event, partial = {}) => {
   if (partial.memoryGb !== undefined) next.memoryGb = Math.round(Number(partial.memoryGb)) || 4;
   if (partial.theme !== undefined) next.theme = THEMES.includes(partial.theme) ? partial.theme : THEMES[0];
   if (partial.calm !== undefined) next.calm = Boolean(partial.calm);
+  if (partial.eventAlerts !== undefined) next.eventAlerts = Boolean(partial.eventAlerts);
   if (partial.textSize !== undefined) next.textSize = TEXT_SCALES[Number(partial.textSize)] ? Number(partial.textSize) : 1;
   if (partial.javaPath !== undefined) next.javaPath = String(partial.javaPath).trim();
   if (partial.joinServer !== undefined) next.joinServer = Boolean(partial.joinServer);
@@ -910,6 +1059,41 @@ function applyTextSize({ resize = false } = {}) {
   fitZoom();
 }
 
+// ---------- Avisos del próximo evento ----------
+
+let nextEvent = null;
+const shownAlerts = new Set();
+
+function checkEventAlert() {
+  if (!settings().eventAlerts || !Notification.isSupported()) return;
+  const alert = dueAlert(nextEvent, Date.now(), shownAlerts);
+  if (!alert) return;
+  const notification = new Notification({
+    title: t(alert.kind === 'now' ? 'event.alertNow' : 'event.alertSoon', { name: alert.name, n: alert.minutes }),
+    body: t('event.alertBody'),
+    icon: ICON_PATH,
+  });
+  notification.on('click', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  notification.show();
+}
+
+// Con el launcher minimizado la ventana no pide novedades: aquí se vuelve a
+// preguntar por el evento de vez en cuando para que el aviso llegue igual.
+async function refreshEvent() {
+  if (!loadConfig().account || backendUrl().includes('CAMBIA-ESTO')) return;
+  try {
+    const data = await withSession((token) => api.listModpacks(backendUrl(), token));
+    nextEvent = data.event || null;
+  } catch {
+    // Sin conexión: se queda el último evento conocido.
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: BASE_WIDTH,
@@ -959,8 +1143,12 @@ if (!app.requestSingleInstanceLock()) {
     modrinth.setUserAgent(app.getVersion());
     registerShotProtocol();
     Menu.setApplicationMenu(null);
+    // Windows enseña las notificaciones a nombre de este identificador.
+    app.setAppUserModelId('com.hcuadrado428.novalauncher');
     createWindow();
     setupAutoUpdates();
+    setInterval(checkEventAlert, 30_000);
+    setInterval(refreshEvent, 10 * 60_000);
   });
   app.on('window-all-closed', () => app.quit());
 }

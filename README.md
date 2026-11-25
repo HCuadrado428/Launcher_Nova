@@ -50,6 +50,7 @@ server/     Backend + panel web. Se despliega en Railway.
 | `JWT_SECRET` | Una cadena aleatoria larga (`openssl rand -hex 32`). |
 | `GOOGLE_CLIENT_ID` | El ID de cliente del paso siguiente. |
 | `OWNER_EMAIL` | Opcional. Por defecto `noovaasmp@gmail.com`. |
+| `CURSEFORGE_API_KEY` | Opcional. Clave de la API de CurseForge (se pide en [console.curseforge.com](https://console.curseforge.com/)). Con ella, el launcher deja buscar mods también en CurseForge; sin ella, solo en Modrinth. |
 
 ### 2. Inicio de sesión con Google para el panel
 

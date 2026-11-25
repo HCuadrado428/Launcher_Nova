@@ -192,7 +192,7 @@ function installedProjects(instanceDir) {
 
 // Baja el archivo a un temporal junto a su destino y devuelve la ruta del
 // temporal, ya comprobado. Quien llama decide si se queda (renombrándolo).
-async function downloadToTemp(file, destDir, downloadOrigins) {
+async function downloadToTemp(file, destDir, downloadOrigins, errorKey = 'err.modrinth') {
   let url;
   try {
     url = new URL(file.url);
@@ -209,9 +209,9 @@ async function downloadToTemp(file, destDir, downloadOrigins) {
     try {
       res = await fetch(url, { headers: { 'User-Agent': userAgent }, signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
     } catch (err) {
-      throw new Error(t('err.modrinth'), { cause: err });
+      throw new Error(t(errorKey), { cause: err });
     }
-    if (!res.ok || !res.body) throw new Error(t('err.modrinth'));
+    if (!res.ok || !res.body) throw new Error(t(errorKey));
     const hash = crypto.createHash('sha1');
     const body = Readable.fromWeb(res.body);
     body.on('data', (chunk) => hash.update(chunk));
@@ -264,6 +264,9 @@ module.exports = {
   installMod,
   installedProjects,
   loadRegistry,
+  saveRegistry,
+  packIndex,
+  downloadToTemp,
   forgetOwnMod,
   setUserAgent,
   normalizeName,

@@ -82,7 +82,17 @@ module.exports = {
   listModpacks: (baseUrl, token) => request(baseUrl, '/api/modpacks', { token }),
   setCharacters: (baseUrl, token, characters) =>
     request(baseUrl, '/api/me/characters', { method: 'PUT', token, body: { characters } }),
-  getManifest: (baseUrl, token, modpackId) => request(baseUrl, `/api/modpacks/${modpackId}/manifest`, { token }),
+  // disabled: mods opcionales que el jugador tiene desactivados (solo para las estadísticas del panel).
+  getManifest: (baseUrl, token, modpackId, disabled = null) =>
+    request(
+      baseUrl,
+      `/api/modpacks/${modpackId}/manifest${disabled ? `?disabled=${encodeURIComponent(disabled.join(','))}` : ''}`,
+      { token },
+    ),
+  searchCurseforge: (baseUrl, token, query, mcVersion) =>
+    request(baseUrl, `/api/curseforge/search?q=${encodeURIComponent(query)}&mc=${encodeURIComponent(mcVersion)}`, { token }),
+  curseforgeFile: (baseUrl, token, modId, mcVersion) =>
+    request(baseUrl, `/api/curseforge/mods/${encodeURIComponent(modId)}/file?mc=${encodeURIComponent(mcVersion)}`, { token }),
   downloadMod: (baseUrl, token, modpackId, sha1, destPath) =>
     downloadFile(baseUrl, `/api/modpacks/${modpackId}/files/${sha1}`, token, destPath),
 };

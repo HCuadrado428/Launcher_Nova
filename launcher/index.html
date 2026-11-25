@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com nova-shot:; style-src 'self'; script-src 'self'"
+      content="default-src 'self'; img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com https://media.forgecdn.net nova-shot:; style-src 'self'; script-src 'self'"
     />
     <title>Nova Launcher</title>
     <link rel="stylesheet" href="style.css" />
@@ -105,9 +105,17 @@
             <p class="hero-state" id="packState"></p>
             <!-- Solo en el modpack de admins: con qué nick se entra al juego. -->
             <div class="char-box" id="charBox" hidden>
+              <img class="char-icon" id="charIcon" alt="" width="36" height="36" hidden />
               <label for="charSelect" data-i18n="char.playAs"></label>
               <select id="charSelect"></select>
               <button class="btn btn-small" type="button" id="charManage" data-i18n="char.manage"></button>
+            </div>
+            <!-- Con el modpack de admins abierto: otro personaje a la vez en una segunda ventana. -->
+            <div class="char-box" id="seatBox" hidden>
+              <label for="seatSelect" data-i18n="char.second"></label>
+              <select id="seatSelect" data-i18n-attr="title:char.secondHint"></select>
+              <span class="seat-running" id="seatRunning" hidden></span>
+              <button class="btn btn-small" type="button" id="seatBtn"></button>
             </div>
             <!-- Versiones, tamaño y fecha: al jugador no le hacen falta para jugar. -->
             <details class="pack-details">
@@ -180,6 +188,11 @@
           <section class="mod-search">
             <h3 data-i18n="mods.search.title"></h3>
             <p class="hint" data-i18n="mods.search.hint"></p>
+            <div class="source-tabs" id="modSources" role="group" hidden data-i18n-attr="aria-label:mods.source">
+              <button class="btn" type="button" data-source="modrinth" aria-pressed="true" data-i18n="mods.source.modrinth"></button>
+              <button class="btn" type="button" data-source="curseforge" aria-pressed="false" data-i18n="mods.source.curseforge"></button>
+            </div>
+            <p class="hint cf-hint" id="modSearchCfHint" hidden data-i18n="mods.search.cfHint"></p>
             <form class="row" id="modSearchForm">
               <input id="modSearchInput" type="search" maxlength="80" spellcheck="false" data-i18n-attr="placeholder:mods.search.placeholder|aria-label:mods.search.placeholder" />
               <button class="btn" type="submit" data-i18n="mods.search.button"></button>
@@ -260,6 +273,11 @@
             </select>
           </div>
         </div>
+
+        <label class="check">
+          <input type="checkbox" id="eventAlertsCheck" />
+          <span data-i18n="settings.eventAlerts"></span>
+        </label>
 
         <label class="check">
           <input type="checkbox" id="calmCheck" />

@@ -516,7 +516,7 @@ function createStore(dataDir) {
             .filter((mod) => mod.optional)
             .map((mod) => ({
               name: mod.label || mod.filename,
-              disabled: reports.filter((keys) => keys.includes(mod.modId || mod.filename)).length,
+              disabled: reports.filter((keys) => keys.includes(String(mod.modId || mod.filename).toLowerCase())).length,
             }))
             .sort((a, b) => b.disabled - a.disabled),
         };
