@@ -73,6 +73,8 @@ function normalize(data) {
   data.discordUrl = typeof data.discordUrl === 'string' ? data.discordUrl : '';
   // Frases del servidor que el launcher enseña al azar junto al título.
   data.phrases = Array.isArray(data.phrases) ? data.phrases.filter((p) => typeof p === 'string') : [];
+  // Modo mantenimiento: { message, since } mientras está puesto; si no, null.
+  data.maintenance = data.maintenance && typeof data.maintenance.message === 'string' ? data.maintenance : null;
   // Jugadores que han usado el launcher y accesos suspendidos, por clave de jugador.
   data.players = data.players && typeof data.players === 'object' ? data.players : {};
   data.bans = data.bans && typeof data.bans === 'object' ? data.bans : {};
@@ -350,7 +352,59 @@ function createStore(dataDir) {
     },
 
     // Novedades y próximo evento: lo que ve todo el mundo al abrir el launcher.
-    getAnnouncements: () => ({ news: data.news, event: data.event, discordUrl: data.discordUrl, phrases: data.phrases }),
+    getAnnouncements: () => ({
+      news: data.news,
+      event: data.event,
+      discordUrl: data.discordUrl,
+      phrases: data.phrases,
+      maintenance: data.maintenance,
+    }),
+
+    // Modo mantenimiento: con un mensaje se pone; con null se quita.
+    setMaintenance(message) {
+      data.maintenance = message === null ? null : { message, since: new Date().toISOString() };
+      save();
+    },
+
+    // Borra las versiones guardadas de todos los modpacks (y sus archivos).
+    clearHistory() {
+      const dropped = MODPACK_IDS.flatMap((id) => data.history[id]);
+      for (const id of MODPACK_IDS) data.history[id] = [];
+      save();
+      removeOrphanFiles(dropped.flatMap((state) => [...state.mods, ...state.files].map((item) => item.sha1)));
+    },
+
+    // Cuánto ocupa lo que se reparte ahora y cuánto lo que solo se guarda
+    // por el historial, y el sitio libre que queda en el disco.
+    storage() {
+      const sizes = new Map();
+      const current = new Set();
+      for (const id of MODPACK_IDS) {
+        for (const item of [...data.modpacks[id].mods, ...data.modpacks[id].files]) {
+          current.add(item.sha1);
+          sizes.set(item.sha1, item.size);
+        }
+        for (const state of data.history[id]) {
+          for (const item of [...state.mods, ...state.files]) sizes.set(item.sha1, item.size);
+        }
+      }
+      let inUse = 0;
+      let historyOnly = 0;
+      for (const [sha1, size] of sizes) {
+        if (current.has(sha1)) inUse += size;
+        else historyOnly += size;
+      }
+      let free = null;
+      let total = null;
+      try {
+        const disk = fs.statfsSync(dataDir);
+        free = disk.bavail * disk.bsize;
+        total = disk.blocks * disk.bsize;
+      } catch {
+        // Sin ese dato (sistema que no lo da): se enseña solo lo que ocupa.
+      }
+      return { inUse, historyOnly, free, total };
+    },
 
     setPhrases(phrases) {
       data.phrases = phrases;

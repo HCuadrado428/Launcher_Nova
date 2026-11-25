@@ -348,6 +348,9 @@ ipcMain.handle('get-modpacks', async () => {
     account: publicAccount(loadConfig().account),
     news: data.news || null,
     event: data.event || null,
+    // Modo mantenimiento: aviso del dueño; no se puede jugar (salvo los admins).
+    maintenance:
+      data.maintenance && typeof data.maintenance.message === 'string' ? data.maintenance.message.slice(0, 200) : null,
     hasDiscord: Boolean(discordUrl),
     phrases: Array.isArray(data.phrases) ? data.phrases.filter((p) => typeof p === 'string').slice(0, 60) : [],
     modpacks: data.modpacks.map((modpack) => {
@@ -688,6 +691,7 @@ async function play(modpackId) {
   progress(1, t('prog.checkPack'));
   // De paso se cuenta al servidor qué opcionales están desactivados (estadísticas del panel).
   const manifest = await withSession((token) => api.getManifest(backendUrl(), token, modpackId, disabledMods(modpackId)));
+  if (manifest.maintenance) throw new Error(t('maint.blocked', { message: String(manifest.maintenance).slice(0, 200) }));
   if (manifest.loader !== 'forge') throw new Error(t('err.onlyForge'));
 
   progress(2, t('prog.javaReady'));

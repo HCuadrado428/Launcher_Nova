@@ -64,6 +64,15 @@
               </div>
             </form>
           </div>
+          <form class="discord-form" id="maintenanceForm">
+            <label for="maintenanceText">Modo mantenimiento <span class="maintenance-on" id="maintenanceOn" hidden>ACTIVO</span></label>
+            <div class="discord-row maintenance-row">
+              <input id="maintenanceText" maxlength="200" placeholder="Actualizando mods. Volvemos a las 18:00." />
+              <button class="btn btn-purple" type="submit" id="maintenanceSave">Activar</button>
+              <button class="btn btn-ghost" type="button" id="maintenanceOff" hidden>Quitar</button>
+            </div>
+            <p class="hint">Mientras está activo, el launcher enseña este aviso y no deja jugar ni descargar mods. Los admins sí pueden entrar, para probar los cambios. Acuérdate de quitarlo al terminar.</p>
+          </form>
           <form class="discord-form" id="phrasesForm">
             <label for="phrasesText">Frases del servidor</label>
             <textarea id="phrasesText" rows="4" placeholder="Una por línea: bromas internas, citas del lore, avisos cortos..."></textarea>
@@ -113,6 +122,12 @@
         <section class="admins stats" aria-labelledby="stats-title">
           <h2 id="stats-title">ESTADÍSTICAS</h2>
           <p class="hint">Cuánta gente abre el launcher, con qué versión y qué mods opcionales desactiva más.</p>
+          <div class="storage" id="storageBox">
+            <p id="storageText"></p>
+            <div class="confirm-inline">
+              <button class="btn btn-ghost btn-small" type="button" id="historyClear">Vaciar historial</button>
+            </div>
+          </div>
           <h3 class="stats-title">Jugadores por día (últimos 30 días)</h3>
           <div class="stats-days" id="statsDays" role="img"></div>
           <h3 class="stats-title">Cierres del juego por error (últimos 30 días)</h3>
@@ -195,7 +210,7 @@
       </div>
 
       <div class="pack-tools">
-        <input class="filter" type="search" placeholder="Buscar mod..." aria-label="Buscar mod" />
+        <input class="filter" type="search" placeholder="Buscar mod (nombre, o «opcional»)..." aria-label="Buscar mod" />
         <button class="btn btn-ghost copy-btn" type="button" hidden>Copiar los del normal</button>
         <button class="btn btn-danger clear-btn" type="button">Vaciar</button>
       </div>

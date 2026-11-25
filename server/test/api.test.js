@@ -840,3 +840,47 @@ test('CurseForge: sin clave no hay búsqueda; con clave se devuelve lo justo', a
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('modo mantenimiento: los jugadores no descargan nada y los admins siguen pudiendo', async () => {
+  const { owner, admin, player } = await login();
+  await api('/api/panel/admins', { method: 'POST', token: owner, body: { nick: 'AdminNova' } });
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['mant.jar', fakeJar('mantenimiento')]]) });
+  const file = `/api/modpacks/normal/files/${sha1(fakeJar('mantenimiento'))}`;
+  const put = (message) => api('/api/panel/maintenance', { method: 'PUT', token: owner, body: { message } });
+
+  assert.equal((await put('a')).status, 400);
+  assert.equal((await api('/api/panel/maintenance', { method: 'PUT', token: player, body: { message: 'hola a todos' } })).status, 401);
+  const on = await put('  Actualizando mods.   Volvemos a las 18:00  ');
+  assert.equal(on.data.maintenance.message, 'Actualizando mods. Volvemos a las 18:00');
+
+  // El jugador lo ve en la lista y en el manifiesto, y no puede bajar archivos.
+  assert.equal((await api('/api/modpacks', { token: player })).data.maintenance.message, 'Actualizando mods. Volvemos a las 18:00');
+  assert.equal((await api('/api/modpacks/normal/manifest', { token: player })).data.maintenance, 'Actualizando mods. Volvemos a las 18:00');
+  const blocked = await api(file, { token: player });
+  assert.equal(blocked.status, 503);
+  // El admin puede seguir entrando para probar la actualización.
+  assert.equal((await api('/api/modpacks/normal/manifest', { token: admin })).data.maintenance, null);
+  assert.equal((await api(file, { token: admin })).status, 200);
+
+  assert.equal((await put(null)).data.maintenance, null);
+  assert.equal((await api('/api/modpacks/normal/manifest', { token: player })).data.maintenance, null);
+  assert.equal((await api(file, { token: player })).status, 200);
+});
+
+test('espacio: se ve lo que ocupa el historial y se puede vaciar', async () => {
+  const { owner, player } = await login();
+  const old = fakeJar('versión vieja que solo queda en el historial');
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['espacio.jar', old]]) });
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['espacio.jar', fakeJar('nueva')]]) });
+  const before = (await api('/api/panel/state', { token: owner })).data;
+  assert.ok(before.storage.inUse > 0);
+  assert.ok(before.storage.historyOnly >= old.length);
+  assert.ok(fs.existsSync(path.join(dataDir, 'files', `${sha1(old)}.jar`)));
+
+  assert.equal((await api('/api/panel/history', { method: 'DELETE', token: player })).status, 401);
+  const after = (await api('/api/panel/history', { method: 'DELETE', token: owner })).data;
+  assert.equal(after.storage.historyOnly, 0);
+  assert.equal(after.storage.inUse, before.storage.inUse);
+  assert.deepEqual(after.history, { normal: [], admin: [] });
+  assert.ok(!fs.existsSync(path.join(dataDir, 'files', `${sha1(old)}.jar`)), 'el .jar que solo estaba en el historial se borra');
+});

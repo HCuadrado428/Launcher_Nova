@@ -1655,3 +1655,15 @@ body {
   border-left: 3px solid #e2b93b;
   background: rgba(226, 185, 59, 0.08);
 }
+
+/* ---------- Aviso de mantenimiento ---------- */
+
+.maint-banner {
+  margin: 6px 0 0;
+  padding: 9px 12px;
+  border-left: 3px solid #e2b93b;
+  border-radius: 0 8px 8px 0;
+  background: rgba(226, 185, 59, 0.1);
+  color: #f1d98a;
+  font-size: 14px;
+}

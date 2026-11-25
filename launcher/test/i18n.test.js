@@ -29,7 +29,7 @@ test('todas las claves que usa el código existen', () => {
   for (const file of sources) {
     const code = fs.readFileSync(path.join(root, file), 'utf8');
     // t('clave') y también 'clave' sueltas con forma de clave (p.ej. en ternarios).
-    for (const match of code.matchAll(/'((?:common|char|login|account|server|side|update|pack|stage|ban|help|nav|home|online|shots|theme|import|news|event|play|console|settings|mods|crash|logs|dialog|prog|warn|err)\.[\w.-]+)'/g)) {
+    for (const match of code.matchAll(/'((?:common|char|maint|login|account|server|side|update|pack|stage|ban|help|nav|home|online|shots|theme|import|news|event|play|console|settings|mods|crash|logs|dialog|prog|warn|err)\.[\w.-]+)'/g)) {
       used.add(match[1]);
     }
   }

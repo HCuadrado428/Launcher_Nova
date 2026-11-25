@@ -298,7 +298,12 @@ function createApp(options) {
       const keys = [...new Set(req.query.disabled.toLowerCase().split(',').filter((key) => optional.has(key)))];
       store.setDisabledMods(playerKey(req.session), modpack.id, keys);
     }
-    res.json(store.publicModpack(modpack, { withMods: true }));
+    // Con «maintenance» el launcher no deja jugar. A los admins no se les manda.
+    const maintenance = store.getAnnouncements().maintenance;
+    res.json({
+      ...store.publicModpack(modpack, { withMods: true }),
+      maintenance: maintenance && !isAdmin(req.session) ? maintenance.message : null,
+    });
   });
 
   // El launcher avisa de que el juego se ha cerrado por error. Solo se cuenta
@@ -403,6 +408,9 @@ function createApp(options) {
   app.get('/api/modpacks/:id/files/:sha1', requirePlayer, (req, res) => {
     const modpack = accessibleModpack(req);
     const { sha1 } = req.params;
+    // En mantenimiento no se reparte nada a los jugadores (los admins sí, para probar).
+    const maintenance = store.getAnnouncements().maintenance;
+    if (maintenance && !isAdmin(req.session)) throw new HttpError(503, maintenance.message, { code: 'maintenance' });
     const known = SHA1_RE.test(sha1) && [...modpack.mods, ...modpack.files].some((item) => item.sha1 === sha1);
     if (!known) throw new HttpError(404, 'Ese archivo no forma parte del modpack.');
     const isMod = modpack.mods.some((m) => m.sha1 === sha1);
@@ -441,6 +449,7 @@ function createApp(options) {
       })),
       history: Object.fromEntries(MODPACK_IDS.map((id) => [id, store.listHistory(id)])),
       stats: store.stats(),
+      storage: store.storage(),
       extraRoots: EXTRA_ROOTS,
       ...store.getAnnouncements(),
     };
@@ -774,6 +783,25 @@ function createApp(options) {
   );
 
   // Invitación al Discord: el botón «Abrir Discord» de la ayuda del launcher.
+  // Modo mantenimiento: { message } lo pone; { message: null } lo quita.
+  app.put('/api/panel/maintenance', requireOwner, (req, res) => {
+    const raw = req.body ? req.body.message : undefined;
+    if (raw === null) {
+      store.setMaintenance(null);
+      return res.json(panelState());
+    }
+    const message = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (message.length < 3 || message.length > 200) throw new HttpError(400, 'El aviso debe tener entre 3 y 200 letras.');
+    store.setMaintenance(message);
+    res.json(panelState());
+  });
+
+  // Vacía el historial de los modpacks para recuperar espacio.
+  app.delete('/api/panel/history', requireOwner, (req, res) => {
+    store.clearHistory();
+    res.json(panelState());
+  });
+
   app.put('/api/panel/discord', requireOwner, (req, res) => {
     const url = String((req.body && req.body.url) || '').trim();
     if (url && !DISCORD_URL_RE.test(url)) {

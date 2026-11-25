@@ -395,7 +395,13 @@ function renderPack(section) {
 
   const list = section.querySelector('.mod-list');
   const filter = filters[modpack.id];
-  const mods = filter ? modpack.mods.filter((m) => m.filename.toLowerCase().includes(filter)) : modpack.mods;
+  // Se busca en el nombre del archivo, el identificador del mod y la etiqueta
+  // que ve el jugador; «opcional» deja solo los opcionales.
+  const matches = (mod) =>
+    [mod.filename, mod.modId, mod.label, mod.optional ? 'opcional' : '']
+      .filter(Boolean)
+      .some((text) => text.toLowerCase().includes(filter));
+  const mods = filter ? modpack.mods.filter(matches) : modpack.mods;
   list.replaceChildren(
     ...mods.map((mod) => {
       const li = document.createElement('li');
@@ -564,7 +570,19 @@ function renderHistory(section, modpack) {
 
 // ---------- Estadísticas ----------
 
+function renderStorage() {
+  const storage = state.storage;
+  if (!storage) return;
+  const parts = [`Mods y archivos que se reparten: ${formatSize(storage.inUse)}`, `guardado solo por el historial: ${formatSize(storage.historyOnly)}`];
+  if (storage.free !== null) parts.push(`libre en el disco del servidor: ${formatSize(storage.free)}${storage.total ? ` de ${formatSize(storage.total)}` : ''}`);
+  document.getElementById('storageText').textContent = `${parts.join(' · ')}.`;
+  document.getElementById('historyClear').disabled = storage.historyOnly === 0 && !Object.values(state.history || {}).some((list) => list.length > 0);
+  // Aviso cuando queda poco sitio: subir mods fallaría.
+  document.getElementById('storageBox').classList.toggle('is-low', storage.free !== null && storage.free < 500 * 1024 * 1024);
+}
+
 function renderStats() {
+  renderStorage();
   const stats = state.stats;
   if (!stats) return;
   // Una barra por día. value(day): el número; words: [singular, plural].
@@ -971,7 +989,30 @@ function renderAnnouncements() {
   if (document.activeElement !== document.getElementById('discordUrl')) {
     document.getElementById('discordUrl').value = state.discordUrl || '';
   }
+  const maintenance = state.maintenance;
+  if (document.activeElement !== document.getElementById('maintenanceText')) {
+    document.getElementById('maintenanceText').value = maintenance ? maintenance.message : '';
+  }
+  document.getElementById('maintenanceOn').hidden = !maintenance;
+  document.getElementById('maintenanceOff').hidden = !maintenance;
+  document.getElementById('maintenanceSave').textContent = maintenance ? 'Cambiar aviso' : 'Activar';
+  document.getElementById('maintenanceForm').classList.toggle('is-on', Boolean(maintenance));
 }
+
+document.getElementById('maintenanceForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const message = document.getElementById('maintenanceText').value.trim();
+  run(
+    () => api('/api/panel/maintenance', { method: 'PUT', body: { message } }),
+    'Modo mantenimiento activado: los jugadores ya no pueden entrar desde el launcher.',
+  );
+});
+document.getElementById('maintenanceOff').addEventListener('click', () =>
+  run(() => api('/api/panel/maintenance', { method: 'PUT', body: { message: null } }), 'Mantenimiento quitado: ya se puede jugar.'),
+);
+confirmButton(document.getElementById('historyClear'), () =>
+  run(() => api('/api/panel/history', { method: 'DELETE' }), 'Historial vaciado.'),
+);
 
 document.getElementById('newsForm').addEventListener('submit', (e) => {
   e.preventDefault();

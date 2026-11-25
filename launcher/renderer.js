@@ -34,6 +34,10 @@ let charDraft = []; // copia que se edita en el diálogo
 const SECOND_SEAT = 'admin:2'; // segunda ventana del modpack de admins
 let seatOpening = false;
 let hasCurseforge = false; // el servidor permite buscar en CurseForge
+let maintenance = null; // aviso de mantenimiento del dueño, o null
+// Los admins pueden entrar aunque haya mantenimiento, para probar los cambios.
+const isAdminAccount = () => Boolean(state.account && state.account.admin);
+const playBlocked = () => Boolean(maintenance) && !isAdminAccount();
 let modSource = 'modrinth';
 
 // Estado de un modpack: running | preparing | waiting (se prepara otro) | idle.
@@ -413,6 +417,7 @@ async function loadModpacks() {
     news = data.news;
     serverEvent = data.event;
     hasDiscord = Boolean(data.hasDiscord);
+    maintenance = data.maintenance || null;
     hasCurseforge = data.curseforge === true;
     renderModSources();
     phrases = data.phrases || [];
@@ -545,8 +550,11 @@ function renderPlayButton() {
   } else {
     button.textContent = t(modpack && modpack.status === 'ready' ? 'play.play' : 'play.install');
     // Mientras se prepara el otro modpack, este espera su turno.
-    button.disabled = !modpack || phase === 'waiting';
+    button.disabled = !modpack || phase === 'waiting' || playBlocked();
   }
+  const banner = $('maintBanner');
+  banner.hidden = !maintenance;
+  if (maintenance) banner.textContent = `${t(isAdminAccount() ? 'maint.admin' : 'maint.title')} ${maintenance}`;
 
   $('progressHint').hidden = !(phase === 'preparing' && firstInstall);
   if (phase === 'running') {
