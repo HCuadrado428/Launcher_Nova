@@ -1,6 +1,11 @@
 const path = require('node:path');
 const { createApp } = require('./app');
-const { createGoogleVerifier, fetchMinecraftProfile, lookupMojangProfile } = require('./external');
+const {
+  createGoogleVerifier,
+  createCurseforgeClient,
+  fetchMinecraftProfile,
+  lookupMojangProfile,
+} = require('./external');
 
 // Arranque del backend. Toda la configuración viene de variables de entorno
 // (ver README.md): en Railway se ponen en la pestaña "Variables".
@@ -10,6 +15,8 @@ const dataDir = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH ||
 const googleClientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
 const ownerEmail = process.env.OWNER_EMAIL || 'noovaasmp@gmail.com';
 const jwtSecret = process.env.JWT_SECRET || '';
+// Opcional: clave de la API de CurseForge, para que el launcher pueda buscar mods allí.
+const curseforgeKey = (process.env.CURSEFORGE_API_KEY || '').trim();
 
 if (jwtSecret.length < 32) {
   console.error('Falta JWT_SECRET (mínimo 32 caracteres). Genera uno con: openssl rand -hex 32');
@@ -34,6 +41,7 @@ const app = createApp({
       },
   fetchMinecraftProfile,
   lookupMojangProfile,
+  curseforge: curseforgeKey ? createCurseforgeClient(curseforgeKey) : null,
 });
 
 app.listen(port, () => {

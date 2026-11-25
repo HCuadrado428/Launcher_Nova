@@ -17,7 +17,7 @@ try {
 } catch {
   // Sin sessionStorage (modo privado estricto): habrá que entrar en cada visita.
 }
-let state = { modpacks: [], admins: [], players: [], news: null, event: null, phrases: [] };
+let state = { modpacks: [], admins: [], players: [], news: null, event: null, phrases: [], history: {}, stats: null, extraRoots: [] };
 const filters = { normal: '', admin: '' };
 
 // ---------- Utilidades ----------
@@ -348,7 +348,31 @@ function buildPack(section) {
     );
   });
 
-  section.querySelector('.version-form').addEventListener('submit', (e) => {
+  // Config, recursos y shaders.
+  const extrasForm = section.querySelector('.extras-form');
+  extrasForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = extrasForm.elements.file.files[0];
+    if (!file) return;
+    const button = extrasForm.querySelector('button');
+    button.disabled = true;
+    button.textContent = 'Subiendo...';
+    try {
+      const data = await uploadExtra(packId, file, extrasForm.elements.target.value);
+      state = data;
+      render();
+      extrasForm.elements.file.value = '';
+      const skipped = data.skipped ? ` (${data.skipped} del .zip no iban a ninguna carpeta y se han dejado fuera)` : '';
+      toast(`${data.added === 1 ? '1 archivo subido' : `${data.added} archivos subidos`}${skipped}.`);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Subir';
+    }
+  });
+
+  section.querySelector('.version-form:not(.extras-form)').addEventListener('submit', (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
     run(
@@ -425,12 +449,189 @@ function renderPack(section) {
   empty.hidden = mods.length > 0;
   empty.textContent = modpack.mods.length === 0 ? 'Sin mods todavía.' : 'Ningún mod coincide con la búsqueda.';
 
+  renderExtras(section, modpack);
+  renderHistory(section, modpack);
+
   // No pisar lo que se esté escribiendo en el formulario de versiones.
-  const form = section.querySelector('.version-form');
+  const form = section.querySelector('.version-form:not(.extras-form)');
   if (!form.contains(document.activeElement)) {
     form.elements.mcVersion.value = modpack.mcVersion;
     form.elements.loaderVersion.value = modpack.loaderVersion;
   }
+}
+
+// ---------- Config, recursos y shaders ----------
+
+function uploadExtra(packId, file, target) {
+  const form = new FormData();
+  form.append('target', target);
+  form.append('file', file, file.name);
+  return fetch(`/api/panel/modpacks/${packId}/files`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
+    .catch(() => {
+      throw new Error('Se cortó la conexión durante la subida.');
+    })
+    .then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        signOut();
+        throw new Error('La sesión ha caducado. Vuelve a entrar.');
+      }
+      if (!res.ok) throw new Error(data.error || `El servidor respondió ${res.status}.`);
+      return data;
+    });
+}
+
+// Los archivos se enseñan agrupados: una fila por carpeta de segundo nivel
+// («config/create») o por archivo suelto («config/jei.toml»).
+function groupExtras(files) {
+  const groups = new Map();
+  for (const file of files) {
+    const parts = file.path.split('/');
+    const key = parts.length > 2 ? parts.slice(0, 2).join('/') : file.path;
+    const group = groups.get(key) || { path: key, folder: parts.length > 2, count: 0, size: 0 };
+    group.count += 1;
+    group.size += file.size;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function renderExtras(section, modpack) {
+  const files = modpack.files || [];
+  section.querySelector('.extras-summary').textContent =
+    `Config, recursos y shaders${files.length > 0 ? ` (${files.length} archivos)` : ''}`;
+  section.querySelector('.extras-roots').textContent = (state.extraRoots || []).join(', ');
+  const select = section.querySelector('.extras-target');
+  if (select.options.length === 0) {
+    const option = (value, text) => {
+      const el = document.createElement('option');
+      el.value = value;
+      el.textContent = text;
+      select.append(el);
+    };
+    option('zip', 'Un .zip con las carpetas dentro');
+    for (const root of state.extraRoots || []) option(root, `Archivo suelto → ${root}/`);
+  }
+  section.querySelector('.extras-list').replaceChildren(
+    ...groupExtras(files).map((group) => {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.className = 'mod-name';
+      name.textContent = group.folder ? `${group.path}/` : group.path;
+      const meta = document.createElement('span');
+      meta.className = 'mod-size';
+      meta.textContent = group.folder ? `${group.count} archivos · ${formatSize(group.size)}` : formatSize(group.size);
+      const remove = smallButton('Quitar', 'btn btn-danger btn-small');
+      confirmButton(remove, () =>
+        run(
+          () => api(`/api/panel/modpacks/${modpack.id}/files/remove`, { method: 'POST', body: { paths: [group.path] } }),
+          `${group.path} ya no se reparte.`,
+        ),
+      );
+      li.append(name, meta, remove);
+      return li;
+    }),
+  );
+}
+
+// ---------- Historial ----------
+
+function renderHistory(section, modpack) {
+  const entries = (state.history && state.history[modpack.id]) || [];
+  section.querySelector('.history-summary').textContent = `Historial${entries.length > 0 ? ` (${entries.length})` : ''}`;
+  section.querySelector('.history-empty').hidden = entries.length > 0;
+  section.querySelector('.history-list').replaceChildren(
+    ...entries.map((entry) => {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.className = 'mod-name';
+      name.textContent = `${formatDate(entry.at)} · ${entry.label}`;
+      const meta = document.createElement('span');
+      meta.className = 'mod-size';
+      meta.textContent = `${entry.modCount} mods${entry.fileCount ? ` · ${entry.fileCount} archivos` : ''}`;
+      const back = smallButton('Volver a esta versión');
+      confirmButton(back, () =>
+        run(
+          () => api(`/api/panel/modpacks/${modpack.id}/history/${entry.id}/restore`, { method: 'POST' }),
+          `${modpack.name} vuelve a estar como el ${formatDate(entry.at)}.`,
+        ),
+      );
+      li.append(name, meta, back);
+      return li;
+    }),
+  );
+}
+
+// ---------- Estadísticas ----------
+
+function renderStats() {
+  const stats = state.stats;
+  if (!stats) return;
+  const max = Math.max(1, ...stats.days.map((day) => day.players));
+  const total = stats.days.reduce((sum, day) => sum + day.players, 0);
+  const days = document.getElementById('statsDays');
+  days.setAttribute('aria-label', `Jugadores por día. Máximo: ${max}. Hoy: ${stats.days[stats.days.length - 1].players}.`);
+  days.replaceChildren(
+    ...stats.days.map((day) => {
+      const column = document.createElement('div');
+      column.className = 'stats-day';
+      const [, month, date] = day.date.split('-');
+      column.title = `${date}/${month}: ${day.players} ${day.players === 1 ? 'jugador' : 'jugadores'}`;
+      const bar = document.createElement('span');
+      bar.style.height = `${Math.round((day.players / max) * 100)}%`;
+      const count = document.createElement('small');
+      count.textContent = day.players > 0 ? String(day.players) : '';
+      const label = document.createElement('small');
+      label.textContent = date;
+      column.append(count, bar, label);
+      return column;
+    }),
+  );
+  days.classList.toggle('is-empty', total === 0);
+
+  const row = (text, value, share) => {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = text;
+    const amount = document.createElement('strong');
+    amount.textContent = value;
+    const bar = document.createElement('span');
+    bar.className = 'stats-share';
+    bar.style.width = `${Math.round(share * 100)}%`;
+    li.append(name, amount, bar);
+    return li;
+  };
+  const empty = (text) => {
+    const li = document.createElement('li');
+    li.className = 'stats-none';
+    li.textContent = text;
+    return li;
+  };
+
+  const players = stats.versions.reduce((sum, v) => sum + v.players, 0);
+  document.getElementById('statsVersions').replaceChildren(
+    ...(stats.versions.length > 0
+      ? stats.versions.map((v) => row(v.version === 'desconocida' ? 'Sin dato' : `v${v.version}`, String(v.players), v.players / players))
+      : [empty('Nadie ha abierto el launcher este mes.')]),
+  );
+
+  const optional = [];
+  for (const modpack of state.modpacks) {
+    const data = stats.optional[modpack.id];
+    if (!data || data.mods.length === 0) continue;
+    for (const mod of data.mods) {
+      optional.push(
+        row(
+          `${mod.name}${state.modpacks.length > 1 ? ` · ${modpack.name}` : ''}`,
+          data.players > 0 ? `${mod.disabled} de ${data.players}` : '—',
+          data.players > 0 ? mod.disabled / data.players : 0,
+        ),
+      );
+    }
+  }
+  document.getElementById('statsOptional').replaceChildren(
+    ...(optional.length > 0 ? optional : [empty('Ningún mod está marcado como opcional.')]),
+  );
 }
 
 // ---------- Admins ----------
@@ -514,13 +715,39 @@ function playerRow(player) {
   const type = document.createElement('small');
   type.textContent = player.premium ? 'Cuenta Microsoft' : 'Sin premium';
   const who = cell(name, type);
-  // Nicks sin premium con los que este admin entra desde el modpack de admins.
-  if (player.characters && player.characters.length > 0) {
-    const characters = document.createElement('small');
-    characters.className = 'player-characters';
-    characters.textContent = `Personajes: ${player.characters.join(', ')}`;
-    who.append(characters);
-  }
+  // Nicks sin premium con los que este admin entra desde el modpack de
+  // admins. El dueño puede quitarle uno (y volver a permitírselo).
+  const characterLine = (title, nicks, action, okText, buttonText) => {
+    if (!nicks || nicks.length === 0) return;
+    const line = document.createElement('div');
+    line.className = 'player-characters';
+    line.append(title);
+    for (const nick of nicks) {
+      const chip = document.createElement('span');
+      chip.className = 'character-chip';
+      chip.append(nick);
+      const button = smallButton(buttonText);
+      button.setAttribute('aria-label', `${buttonText}: ${nick}`);
+      confirmButton(button, () => run(() => action(nick), okText(nick)));
+      chip.append(button);
+      line.append(chip);
+    }
+    who.append(line);
+  };
+  characterLine(
+    'Personajes:',
+    player.characters,
+    (nick) => api(playerUrl(player, `/characters/${encodeURIComponent(nick)}`), { method: 'DELETE' }),
+    (nick) => `${player.name} ya no puede usar el personaje ${nick}.`,
+    'Quitar',
+  );
+  characterLine(
+    'Quitados:',
+    player.blockedCharacters,
+    (nick) => api(playerUrl(player, `/blocked-characters/${encodeURIComponent(nick)}`), { method: 'DELETE' }),
+    (nick) => `${player.name} puede volver a usar ${nick}.`,
+    'Permitir',
+  );
   cell(formatDate(player.lastSeen));
   cell(player.launcherVersion ? `v${player.launcherVersion}` : '—');
 
@@ -777,6 +1004,7 @@ function render() {
   renderAdmins();
   renderPlayers();
   renderAnnouncements();
+  renderStats();
 }
 
 for (const section of document.querySelectorAll('.pack')) buildPack(section);

@@ -110,6 +110,23 @@
           <p class="empty" id="playersEmpty" hidden>Todavía no ha entrado nadie con el launcher.</p>
         </section>
 
+        <section class="admins stats" aria-labelledby="stats-title">
+          <h2 id="stats-title">ESTADÍSTICAS</h2>
+          <p class="hint">Cuánta gente abre el launcher, con qué versión y qué mods opcionales desactiva más.</p>
+          <h3 class="stats-title">Jugadores por día (últimos 30 días)</h3>
+          <div class="stats-days" id="statsDays" role="img"></div>
+          <div class="stats-columns">
+            <div>
+              <h3 class="stats-title">Versión del launcher</h3>
+              <ul class="stats-list" id="statsVersions"></ul>
+            </div>
+            <div>
+              <h3 class="stats-title">Mods opcionales desactivados</h3>
+              <ul class="stats-list" id="statsOptional"></ul>
+            </div>
+          </div>
+        </section>
+
         <section class="admins backup" aria-labelledby="backup-title">
           <h2 id="backup-title">COPIA DE SEGURIDAD</h2>
           <p class="hint">
@@ -182,6 +199,26 @@
       <p class="hint">Marca como <strong>Opcional</strong> los mods de cliente (minimapa, shaders...): cada jugador decide en el launcher si los usa. Ponles un nombre y una frase para que sepan qué son.</p>
       <ul class="mod-list"></ul>
       <p class="empty" hidden>Sin mods todavía.</p>
+
+      <details class="versions extras">
+        <summary class="extras-summary">Config, recursos y shaders</summary>
+        <p class="hint">Archivos que el launcher reparte además de los mods. Sube un <strong>.zip</strong> que lleve dentro las carpetas (<span class="extras-roots"></span>), o un archivo suelto eligiendo su carpeta. Al jugador solo se le pisa un archivo cuando tú lo cambias aquí: lo que él ajuste después se le respeta.</p>
+        <form class="version-form extras-form">
+          <label>Destino
+            <select name="target" class="extras-target"></select>
+          </label>
+          <input name="file" type="file" required />
+          <button class="btn btn-ghost" type="submit">Subir</button>
+        </form>
+        <ul class="mod-list extras-list"></ul>
+      </details>
+
+      <details class="versions history">
+        <summary class="history-summary">Historial</summary>
+        <p class="hint">Cada cambio guarda cómo estaba el modpack justo antes. Si una actualización rompe el juego, vuelve aquí a la versión anterior. Se guardan las últimas 15.</p>
+        <ul class="mod-list history-list"></ul>
+        <p class="empty history-empty" hidden>Todavía no hay cambios guardados.</p>
+      </details>
 
       <details class="versions">
         <summary>Versión de Minecraft y Forge</summary>

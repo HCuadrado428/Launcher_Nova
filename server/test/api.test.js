@@ -18,8 +18,9 @@ let server;
 let base;
 let dataDir;
 
-function startApp(dir) {
+function startApp(dir, extra = {}) {
   const app = createApp({
+    ...extra,
     dataDir: dir,
     jwtSecret: 'x'.repeat(48),
     ownerEmail: OWNER,
@@ -173,7 +174,8 @@ test('subir, sustituir y borrar mods actualiza el manifiesto', async () => {
   assert.equal(second.data.mods.length, 2);
   assert.notEqual(second.data.versionHash, first.data.versionHash);
   assert.equal((await api(`/api/modpacks/normal/files/${sha1(sodium)}`, { token: player })).status, 404);
-  assert.ok(!fs.existsSync(path.join(dataDir, 'files', `${sha1(sodium)}.jar`)), 'el .jar viejo se borra del disco');
+  // El .jar viejo deja de repartirse, pero se guarda mientras esté en el historial (para deshacer).
+  assert.ok(fs.existsSync(path.join(dataDir, 'files', `${sha1(sodium)}.jar`)), 'el .jar viejo sigue para poder deshacer');
 
   const jeiMod = second.data.mods.find((m) => m.filename === 'jei.jar');
   const del = await api(`/api/panel/modpacks/normal/mods/${jeiMod.id}`, { method: 'DELETE', token: owner });
@@ -511,7 +513,8 @@ test('la copia de seguridad se descarga y, restaurada, deja el panel como estaba
   await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
   await api('/api/panel/phrases', { method: 'PUT', token: owner, body: { text: '' } });
   const createSha = before.modpacks[0].mods.find((m) => m.filename === 'create.jar').sha1;
-  assert.ok(!fs.existsSync(path.join(dataDir, 'files', `${createSha}.jar`)), 'el .jar se había borrado');
+  // ...y hasta se pierde el archivo del disco.
+  fs.rmSync(path.join(dataDir, 'files', `${createSha}.jar`), { force: true });
 
   const restoreForm = () => {
     const form = new FormData();
@@ -599,4 +602,221 @@ test('los personajes son solo para admins y no pisan el nick de otro jugador', a
   assert.equal((await put(admin, [])).status, 200);
   const after = (await api('/api/panel/state', { token: owner })).data;
   assert.equal(after.players.find((p) => p.admin).characters, undefined);
+});
+
+test('archivos de config y recursos: se suben en un zip, llegan al manifiesto y se pueden quitar', async () => {
+  const { owner, player } = await login();
+  const upload = (buffer, target, name = 'extras.zip') => {
+    const form = new FormData();
+    form.append('target', target);
+    form.append('file', new Blob([buffer]), name);
+    return api('/api/panel/modpacks/normal/files', { method: 'POST', token: owner, form });
+  };
+  const zip = await makeZip({
+    'config/create/common.toml': 'velocidad = 2',
+    'config/jei.toml': 'modo = "trampa"',
+    'resourcepacks/Nova.zip': 'paquete',
+    'mods/troyano.jar': 'no debe entrar',
+    'leeme.txt': 'ni esto',
+  });
+  const before = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  const added = await upload(zip, 'zip');
+  assert.equal(added.status, 200);
+  assert.equal(added.data.added, 3);
+  assert.equal(added.data.skipped, 2);
+
+  const manifest = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.deepEqual(
+    manifest.files.map((f) => f.path),
+    ['config/create/common.toml', 'config/jei.toml', 'resourcepacks/Nova.zip'],
+  );
+  assert.notEqual(manifest.versionHash, before.versionHash);
+  const common = manifest.files[0];
+  const file = await api(`/api/modpacks/normal/files/${common.sha1}`, { token: player });
+  assert.equal(file.status, 200);
+  assert.equal(file.data.toString(), 'velocidad = 2');
+
+  // Un paquete de shaders suelto va tal cual a su carpeta; un destino inventado, no.
+  assert.equal((await upload(Buffer.from('shaders'), 'shaderpacks', 'Complementary.zip')).status, 200);
+  assert.equal((await upload(Buffer.from('x'), 'mods', 'malo.jar')).status, 400);
+  assert.equal((await upload(Buffer.from('no soy un zip'), 'zip')).status, 400);
+  assert.equal((await upload(await makeZip({ 'otra/cosa.txt': 'x' }), 'zip')).status, 400);
+  // Un zip con rutas que intentan salir de la carpeta se rechaza entero.
+  assert.equal((await upload(await makeZip({ 'config/a.toml': 'x', '../fuera.txt': 'x' }), 'zip')).status, 400);
+
+  // Quitar una carpeta entera y un archivo suelto.
+  const removed = await api('/api/panel/modpacks/normal/files/remove', {
+    method: 'POST',
+    token: owner,
+    body: { paths: ['config/create', 'shaderpacks/Complementary.zip'] },
+  });
+  assert.equal(removed.status, 200);
+  const after = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.deepEqual(
+    after.files.map((f) => f.path),
+    ['config/jei.toml', 'resourcepacks/Nova.zip'],
+  );
+  assert.equal((await api(`/api/modpacks/normal/files/${common.sha1}`, { token: player })).status, 404);
+  await api('/api/panel/modpacks/normal/files/remove', { method: 'POST', token: owner, body: { paths: ['config', 'resourcepacks'] } });
+});
+
+test('historial: cada cambio se guarda y se puede volver atrás', async () => {
+  const { owner, player } = await login();
+  await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
+  const good = fakeJar('mod bueno');
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['bueno.jar', good]]) });
+  const stable = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+
+  // Una actualización que lo rompe todo: se cambia el mod y se sube otro.
+  const bad = fakeJar('mod roto');
+  await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([
+      ['bueno.jar', bad],
+      ['extra.jar', fakeJar('extra')],
+    ]),
+  });
+  const broken = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.equal(broken.mods.length, 2);
+  assert.equal((await api(`/api/modpacks/normal/files/${sha1(good)}`, { token: player })).status, 404);
+
+  const state = (await api('/api/panel/state', { token: owner })).data;
+  const entry = state.history.normal[0];
+  assert.equal(entry.label, 'Antes de subir 2 mods');
+  assert.equal(entry.modCount, 1);
+  assert.ok(state.history.normal.length <= 15);
+
+  const back = await api(`/api/panel/modpacks/normal/history/${entry.id}/restore`, { method: 'POST', token: owner });
+  assert.equal(back.status, 200);
+  const restored = (await api('/api/modpacks/normal/manifest', { token: player })).data;
+  assert.equal(restored.versionHash, stable.versionHash);
+  assert.equal((await api(`/api/modpacks/normal/files/${sha1(good)}`, { token: player })).status, 200);
+  // Volver atrás también se puede deshacer.
+  assert.equal(back.data.history.normal[0].modCount, 2);
+  assert.equal((await api('/api/panel/modpacks/normal/history/no-existe/restore', { method: 'POST', token: owner })).status, 404);
+});
+
+test('el dueño puede quitar un personaje a un admin y no vuelve a ponerlo', async () => {
+  const { owner, admin } = await login();
+  await api('/api/panel/admins', { method: 'POST', token: owner, body: { nick: 'AdminNova' } });
+  const put = (characters) => api('/api/me/characters', { method: 'PUT', token: admin, body: { characters } });
+  assert.equal((await put(['Herrera_Nik', 'Maga_Nik'])).status, 200);
+  const row = (await api('/api/panel/state', { token: owner })).data.players.find((p) => p.admin);
+  const url = `/api/panel/players/${encodeURIComponent(row.key)}`;
+
+  const blocked = await api(`${url}/characters/maga_nik`, { method: 'DELETE', token: owner });
+  const after = blocked.data.players.find((p) => p.admin);
+  assert.deepEqual(after.characters, ['Herrera_Nik']);
+  assert.deepEqual(after.blockedCharacters, ['maga_nik']);
+
+  // El launcher se entera al pedir los modpacks, y el servidor no acepta el nick.
+  assert.deepEqual((await api('/api/modpacks', { token: admin })).data.blockedCharacters, ['maga_nik']);
+  const again = await put(['Herrera_Nik', 'Maga_Nik']);
+  assert.equal(again.status, 409);
+  assert.equal(again.data.code, 'nick-blocked');
+
+  await api(`${url}/blocked-characters/Maga_Nik`, { method: 'DELETE', token: owner });
+  assert.equal((await put(['Herrera_Nik', 'Maga_Nik'])).status, 200);
+  await put([]);
+});
+
+test('estadísticas: actividad por día, versiones y mods opcionales desactivados', async () => {
+  const { owner, player, offline } = await login();
+  await api('/api/panel/modpacks/normal/mods', { method: 'DELETE', token: owner });
+  await api('/api/panel/modpacks/normal/mods', {
+    method: 'POST',
+    token: owner,
+    form: uploadForm([
+      ['minimapa.jar', await forgeJar('minimapa')],
+      ['base.jar', await forgeJar('base')],
+    ]),
+  });
+  const mods = (await api('/api/panel/state', { token: owner })).data.modpacks[0].mods;
+  const map = mods.find((m) => m.filename === 'minimapa.jar');
+  await api(`/api/panel/modpacks/normal/mods/${map.id}`, { method: 'PATCH', token: owner, body: { optional: true, label: 'Minimapa' } });
+
+  // Un jugador lo tiene desactivado (y cuela un mod que no es opcional); el otro, no.
+  await api('/api/modpacks/normal/manifest?disabled=minimapa,base,inventado', { token: player });
+  await api('/api/modpacks/normal/manifest?disabled=', { token: offline });
+
+  const { stats } = (await api('/api/panel/state', { token: owner })).data;
+  assert.equal(stats.days.length, 30);
+  const today = stats.days[stats.days.length - 1];
+  assert.equal(today.date, new Date().toISOString().slice(0, 10));
+  assert.ok(today.players >= 2);
+  assert.ok(stats.versions.reduce((sum, v) => sum + v.players, 0) >= 2);
+  assert.deepEqual(stats.optional.normal, { players: 2, mods: [{ name: 'Minimapa', disabled: 1 }] });
+});
+
+test('CurseForge: sin clave no hay búsqueda; con clave se devuelve lo justo', async () => {
+  const { player } = await login();
+  assert.equal((await api('/api/modpacks', { token: player })).data.curseforge, false);
+  assert.equal((await api('/api/curseforge/search?q=mapa&mc=1.20.1', { token: player })).status, 503);
+
+  // Otro servidor, con una API de CurseForge falsa.
+  const asked = [];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), '.nova-cf-'));
+  const other = await startApp(dir, {
+    curseforge: async (pathname, params) => {
+      asked.push({ pathname, params });
+      if (pathname === '/v1/mods/search') {
+        return {
+          data: [
+            { id: 238222, name: 'JEI', summary: 'Recetas', downloadCount: 9, logo: { thumbnailUrl: 'https://cdn/jei.png' } },
+            { id: 5, name: 'Cerrado', summary: '', downloadCount: 1, allowModDistribution: false, secreto: 'no sale' },
+          ],
+        };
+      }
+      if (pathname === '/v1/mods/238222/files') {
+        return {
+          data: [
+            { fileName: 'jei-viejo.jar', fileDate: '2024-01-01T00:00:00Z', downloadUrl: 'https://edge/viejo.jar', fileLength: 1 },
+            {
+              fileName: 'jei-nuevo.jar',
+              fileDate: '2025-01-01T00:00:00Z',
+              downloadUrl: 'https://edge/nuevo.jar',
+              fileLength: 77,
+              hashes: [
+                { value: 'ABCDEF', algo: 2 },
+                { value: 'A'.repeat(40), algo: 1 },
+              ],
+            },
+            { fileName: 'fuentes.zip', fileDate: '2026-01-01T00:00:00Z', downloadUrl: 'https://edge/fuentes.zip' },
+          ],
+        };
+      }
+      if (pathname === '/v1/mods/5/files') return { data: [{ fileName: 'cerrado.jar', fileDate: '2025', downloadUrl: null }] };
+      if (pathname === '/v1/mods/6/files') return { data: [] };
+      throw new Error('caída');
+    },
+  });
+  const mainBase = base;
+  base = `http://127.0.0.1:${other.address().port}`;
+  try {
+    const token = (await api('/api/auth/offline', { method: 'POST', body: { username: 'Buscadora' } })).data.token;
+    assert.equal((await api('/api/modpacks', { token })).data.curseforge, true);
+    assert.equal((await api('/api/curseforge/search?q=jei&mc=1.20.1')).status, 401);
+
+    const search = await api('/api/curseforge/search?q=jei&mc=1.20.1', { token });
+    assert.deepEqual(search.data.hits, [
+      { id: '238222', title: 'JEI', description: 'Recetas', downloads: 9, icon: 'https://cdn/jei.png', allowed: true },
+      { id: '5', title: 'Cerrado', description: '', downloads: 1, icon: null, allowed: false },
+    ]);
+    assert.equal(asked[0].params.gameVersion, '1.20.1');
+    assert.equal(asked[0].params.searchFilter, 'jei');
+
+    const file = await api('/api/curseforge/mods/238222/file?mc=1.20.1', { token });
+    assert.deepEqual(file.data, { filename: 'jei-nuevo.jar', url: 'https://edge/nuevo.jar', size: 77, sha1: 'a'.repeat(40) });
+    const closed = await api('/api/curseforge/mods/5/file?mc=1.20.1', { token });
+    assert.equal(closed.status, 409);
+    assert.equal(closed.data.code, 'no-distribution');
+    assert.equal((await api('/api/curseforge/mods/6/file?mc=1.20.1', { token })).status, 404);
+    assert.equal((await api('/api/curseforge/mods/7/file?mc=1.20.1', { token })).status, 502);
+    assert.equal((await api('/api/curseforge/mods/..%2Fgames/file?mc=1.20.1', { token })).status, 400);
+  } finally {
+    base = mainBase;
+    other.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

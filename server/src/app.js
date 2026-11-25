@@ -9,6 +9,7 @@ const { createStore, MODPACK_IDS } = require('./store');
 const { normalizeUuid } = require('./external');
 const { readModId } = require('./jarinfo');
 const { writeBackup, restoreBackup, BackupError } = require('./backup');
+const { EXTRA_ROOTS, cleanExtraPath, extractExtras, ExtrasError } = require('./extras');
 
 const MAX_MOD_SIZE = 300 * 1024 * 1024; // por .jar
 const MAX_FILES_PER_UPLOAD = 300;
@@ -81,6 +82,8 @@ function createApp(options) {
     fetchMinecraftProfile,
     lookupMojangProfile,
     rateLimitMax = 30,
+    // Búsqueda de mods en CurseForge: función (ruta, parámetros) => JSON, o null si no hay clave.
+    curseforge = null,
   } = options;
   if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET debe tener al menos 32 caracteres.');
   const owner = String(ownerEmail || '').trim().toLowerCase();
@@ -258,8 +261,16 @@ function createApp(options) {
       }
       nicks.push(nick);
     }
-    const clash = store.setCharacters(playerKey(req.session), nicks);
-    if (clash) throw new HttpError(409, `El nick ${clash} ya lo usa otro jugador.`, { code: 'nick-taken', nick: clash });
+    const refused = store.setCharacters(playerKey(req.session), nicks);
+    if (refused && refused.code === 'blocked') {
+      throw new HttpError(409, `El dueño del servidor ha quitado el personaje ${refused.nick}.`, {
+        code: 'nick-blocked',
+        nick: refused.nick,
+      });
+    }
+    if (refused) {
+      throw new HttpError(409, `El nick ${refused.nick} ya lo usa otro jugador.`, { code: 'nick-taken', nick: refused.nick });
+    }
     res.json({ characters: nicks });
   });
 
@@ -269,19 +280,104 @@ function createApp(options) {
       player: playerInfo(req.session),
       modpacks: ids.map((id) => store.publicModpack(store.getModpack(id))),
       ...store.getAnnouncements(),
+      // Personajes que el dueño le ha quitado a este admin desde el panel.
+      blockedCharacters: store.blockedCharacters(playerKey(req.session)),
+      curseforge: Boolean(curseforge),
     });
   });
 
+  // «disabled»: mods opcionales que el jugador tiene desactivados (lo manda
+  // el launcher al ir a jugar). Solo alimenta las estadísticas del panel.
   app.get('/api/modpacks/:id/manifest', requirePlayer, (req, res) => {
-    res.json(store.publicModpack(accessibleModpack(req), { withMods: true }));
+    const modpack = accessibleModpack(req);
+    if (typeof req.query.disabled === 'string') {
+      const optional = new Set(modpack.mods.filter((m) => m.optional).map((m) => m.modId || m.filename));
+      const keys = [...new Set(req.query.disabled.split(',').filter((key) => optional.has(key)))];
+      store.setDisabledMods(playerKey(req.session), modpack.id, keys);
+    }
+    res.json(store.publicModpack(modpack, { withMods: true }));
+  });
+
+  // ---------- CurseForge (la clave de su API se queda en el servidor) ----------
+
+  const CF_MINECRAFT = 432;
+  const CF_MODS_CLASS = 6;
+  const CF_FORGE = 1;
+  const CF_SHA1 = 1;
+
+  function requireCurseforge(req, res, next) {
+    if (!curseforge) throw new HttpError(503, 'La búsqueda en CurseForge no está configurada en el servidor.');
+    next();
+  }
+
+  async function askCurseforge(pathname, params) {
+    try {
+      return await curseforge(pathname, params);
+    } catch {
+      throw new HttpError(502, 'CurseForge no responde ahora mismo.');
+    }
+  }
+
+  app.get('/api/curseforge/search', requirePlayer, requireCurseforge, async (req, res) => {
+    const query = String(req.query.q || '').trim().slice(0, 80);
+    const mcVersion = String(req.query.mc || '');
+    if (!VERSION_RE.test(mcVersion)) throw new HttpError(400, 'Versión de Minecraft no válida.');
+    const data = await askCurseforge('/v1/mods/search', {
+      gameId: CF_MINECRAFT,
+      classId: CF_MODS_CLASS,
+      searchFilter: query,
+      gameVersion: mcVersion,
+      modLoaderType: CF_FORGE,
+      sortField: 2, // popularidad
+      sortOrder: 'desc',
+      pageSize: 20,
+    });
+    const list = data && Array.isArray(data.data) ? data.data : [];
+    res.json({
+      hits: list.map((mod) => ({
+        id: String(mod.id),
+        title: String(mod.name || ''),
+        description: String(mod.summary || ''),
+        downloads: Number(mod.downloadCount) || 0,
+        icon: (mod.logo && mod.logo.thumbnailUrl) || null,
+        // El autor puede prohibir que se descargue desde fuera de la app de CurseForge.
+        allowed: mod.allowModDistribution !== false,
+      })),
+    });
+  });
+
+  // El archivo más reciente de ese mod para esta versión de Minecraft y Forge.
+  app.get('/api/curseforge/mods/:modId/file', requirePlayer, requireCurseforge, async (req, res) => {
+    const { modId } = req.params;
+    const mcVersion = String(req.query.mc || '');
+    if (!/^\d{1,10}$/.test(modId) || !VERSION_RE.test(mcVersion)) throw new HttpError(400, 'Petición no válida.');
+    const data = await askCurseforge(`/v1/mods/${modId}/files`, {
+      gameVersion: mcVersion,
+      modLoaderType: CF_FORGE,
+      pageSize: 20,
+    });
+    const files = (data && Array.isArray(data.data) ? data.data : [])
+      .filter((file) => file.isAvailable !== false && /\.jar$/i.test(String(file.fileName || '')))
+      .sort((a, b) => String(b.fileDate || '').localeCompare(String(a.fileDate || '')));
+    if (files.length === 0) throw new HttpError(404, 'Ese mod no tiene versión para este modpack.');
+    const file = files.find((candidate) => candidate.downloadUrl) || null;
+    if (!file) throw new HttpError(409, 'El autor no permite descargar este mod desde fuera de CurseForge.', { code: 'no-distribution' });
+    const sha1 = (file.hashes || []).find((hash) => hash.algo === CF_SHA1);
+    res.json({
+      filename: String(file.fileName),
+      url: String(file.downloadUrl),
+      size: Number(file.fileLength) || 0,
+      sha1: sha1 ? String(sha1.value).toLowerCase() : null,
+    });
   });
 
   app.get('/api/modpacks/:id/files/:sha1', requirePlayer, (req, res) => {
     const modpack = accessibleModpack(req);
     const { sha1 } = req.params;
-    const mod = SHA1_RE.test(sha1) && modpack.mods.find((m) => m.sha1 === sha1);
-    if (!mod) throw new HttpError(404, 'Ese archivo no forma parte del modpack.');
-    res.setHeader('Content-Type', 'application/java-archive');
+    const known = SHA1_RE.test(sha1) && [...modpack.mods, ...modpack.files].some((item) => item.sha1 === sha1);
+    if (!known) throw new HttpError(404, 'Ese archivo no forma parte del modpack.');
+    const isMod = modpack.mods.some((m) => m.sha1 === sha1);
+    res.setHeader('Content-Type', isMod ? 'application/java-archive' : 'application/octet-stream');
     res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
     // Con root: así una carpeta de datos con punto en la ruta no hace que Express lo trate como archivo oculto.
     res.sendFile(`${sha1}.jar`, { root: store.filesDir }, (err) => {
@@ -310,7 +406,13 @@ function createApp(options) {
     return {
       modpacks: MODPACK_IDS.map((id) => store.publicModpack(store.getModpack(id), { withMods: true })),
       admins: store.listAdmins(),
-      players: store.listPlayers().map((player) => ({ ...player, admin: player.premium && store.isAdminUuid(player.uuid) })),
+      players: store.listPlayers().map(({ disabled, ...player }) => ({
+        ...player,
+        admin: player.premium && store.isAdminUuid(player.uuid),
+      })),
+      history: Object.fromEntries(MODPACK_IDS.map((id) => [id, store.listHistory(id)])),
+      stats: store.stats(),
+      extraRoots: EXTRA_ROOTS,
       ...store.getAnnouncements(),
     };
   }
@@ -349,6 +451,8 @@ function createApp(options) {
     },
     async (req, res) => {
       const results = [];
+      const count = (req.files || []).length;
+      if (count > 0) store.snapshot(req.params.id, count === 1 ? 'Antes de subir 1 mod' : `Antes de subir ${count} mods`);
       for (const file of req.files || []) {
         const filename = cleanJarName(file.originalname);
         try {
@@ -381,18 +485,24 @@ function createApp(options) {
     if (body.label !== undefined) fields.label = String(body.label).trim().slice(0, MAX_MOD_LABEL);
     if (body.description !== undefined) fields.description = String(body.description).trim().slice(0, MAX_MOD_DESCRIPTION);
     if (Object.keys(fields).length === 0) throw new HttpError(400, 'No hay nada que cambiar.');
+    const target = panelModpack(req).mods.find((m) => m.id === req.params.modId);
+    if (!target) throw new HttpError(404, 'Ese mod ya no está.');
+    store.snapshot(req.params.id, `Antes de cambiar ${target.filename}`);
     if (!store.updateMod(req.params.id, req.params.modId, fields)) throw new HttpError(404, 'Ese mod ya no está.');
     res.json(panelState());
   });
 
   app.delete('/api/panel/modpacks/:id/mods/:modId', requireOwner, (req, res) => {
-    panelModpack(req);
-    if (store.removeMods(req.params.id, [req.params.modId]) === 0) throw new HttpError(404, 'Ese mod ya no está.');
+    const target = panelModpack(req).mods.find((m) => m.id === req.params.modId);
+    if (!target) throw new HttpError(404, 'Ese mod ya no está.');
+    store.snapshot(req.params.id, `Antes de quitar ${target.filename}`);
+    store.removeMods(req.params.id, [req.params.modId]);
     res.json(panelState());
   });
 
   app.delete('/api/panel/modpacks/:id/mods', requireOwner, (req, res) => {
     const modpack = panelModpack(req);
+    if (modpack.mods.length > 0) store.snapshot(modpack.id, 'Antes de quitar todos los mods');
     store.removeMods(
       modpack.id,
       modpack.mods.map((m) => m.id),
@@ -404,6 +514,7 @@ function createApp(options) {
     const to = panelModpack(req);
     const from = store.getModpack(req.params.from);
     if (!from || from.id === to.id) throw new HttpError(400, 'Modpack de origen no válido.');
+    store.snapshot(to.id, `Antes de copiar los mods de ${from.name}`);
     store.copyMods(from.id, to.id);
     res.json(panelState());
   });
@@ -427,7 +538,101 @@ function createApp(options) {
       if (value && !VERSION_RE.test(value)) throw new HttpError(400, 'Versión de Forge no válida.');
       fields.loaderVersion = value;
     }
+    if (fields.mcVersion !== undefined || fields.loaderVersion !== undefined) {
+      store.snapshot(modpack.id, 'Antes de cambiar la versión de Minecraft o Forge');
+    }
     store.updateModpack(modpack.id, fields);
+    res.json(panelState());
+  });
+
+  // ---------- Archivos sueltos: config, recursos y shaders ----------
+
+  const uploadExtra = multer({
+    storage: multer.diskStorage({
+      destination: store.tmpDir,
+      filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.part`),
+    }),
+    limits: { fileSize: MAX_MOD_SIZE, files: 1 },
+  }).single('file');
+
+  // target = 'zip': un .zip con las carpetas config/, resourcepacks/... dentro.
+  // target = una carpeta permitida: el archivo va tal cual a esa carpeta (un
+  // paquete de recursos o de shaders, que ya son un .zip).
+  app.post(
+    '/api/panel/modpacks/:id/files',
+    requireOwner,
+    (req, res, next) => {
+      panelModpack(req);
+      uploadExtra(req, res, (err) => {
+        if (!err) return next();
+        if (req.file) fs.rmSync(req.file.path, { force: true });
+        if (err.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'El archivo pasa de 300 MB.'));
+        next(new HttpError(400, 'No se pudo leer la subida.'));
+      });
+    },
+    async (req, res) => {
+      const file = req.file;
+      if (!file) throw new HttpError(400, 'No has enviado ningún archivo.');
+      const target = String((req.body && req.body.target) || 'zip');
+      let entries;
+      let skipped = 0;
+      try {
+        if (target === 'zip') {
+          ({ entries, skipped } = await extractExtras(file.path, store.tmpDir));
+          if (entries.length === 0) {
+            throw new ExtrasError(`El .zip no lleva ninguna de estas carpetas: ${EXTRA_ROOTS.join(', ')}.`);
+          }
+        } else {
+          const name = Buffer.from(String(file.originalname || ''), 'latin1').toString('utf8').split(/[\\/]/).pop();
+          const cleaned = EXTRA_ROOTS.includes(target) ? cleanExtraPath(`${target}/${name}`) : null;
+          if (!cleaned || file.size === 0) throw new ExtrasError('El nombre del archivo o la carpeta de destino no valen.');
+          entries = [{ tmpPath: file.path, path: cleaned, sha1: await sha1OfFile(file.path), size: file.size }];
+        }
+      } catch (err) {
+        fs.rmSync(file.path, { force: true });
+        if (err instanceof ExtrasError) throw new HttpError(400, err.message);
+        throw err;
+      }
+      if (target === 'zip') fs.rmSync(file.path, { force: true });
+      store.snapshot(req.params.id, entries.length === 1 ? `Antes de subir ${entries[0].path}` : `Antes de subir ${entries.length} archivos`);
+      store.addFiles(req.params.id, entries);
+      res.json({ added: entries.length, skipped, ...panelState() });
+    },
+  );
+
+  // paths: rutas o carpetas a quitar («config/create» quita toda la carpeta).
+  app.post('/api/panel/modpacks/:id/files/remove', requireOwner, (req, res) => {
+    const modpack = panelModpack(req);
+    const paths = req.body && req.body.paths;
+    if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== 'string' || !p)) {
+      throw new HttpError(400, 'Falta indicar qué archivos quitar.');
+    }
+    const affected = modpack.files.filter((f) => paths.some((p) => f.path === p || f.path.startsWith(`${p}/`))).length;
+    if (affected === 0) throw new HttpError(404, 'Esos archivos ya no están.');
+    store.snapshot(modpack.id, affected === 1 ? 'Antes de quitar 1 archivo' : `Antes de quitar ${affected} archivos`);
+    store.removeFiles(modpack.id, paths);
+    res.json(panelState());
+  });
+
+  // ---------- Historial: volver a una versión anterior del modpack ----------
+
+  app.post('/api/panel/modpacks/:id/history/:snapshotId/restore', requireOwner, (req, res) => {
+    const modpack = panelModpack(req);
+    if (!store.restoreSnapshot(modpack.id, req.params.snapshotId)) throw new HttpError(404, 'Esa versión ya no está guardada.');
+    res.json(panelState());
+  });
+
+  // ---------- Personajes de los admins ----------
+
+  // Quita un personaje a un admin y no le deja volver a ponerlo.
+  app.delete('/api/panel/players/:key/characters/:nick', requireOwner, (req, res) => {
+    if (!store.blockCharacter(req.params.key, req.params.nick)) throw new HttpError(404, 'Ese jugador no está en la lista.');
+    res.json(panelState());
+  });
+
+  // Le vuelve a permitir un personaje que se le había quitado.
+  app.delete('/api/panel/players/:key/blocked-characters/:nick', requireOwner, (req, res) => {
+    if (!store.unblockCharacter(req.params.key, req.params.nick)) throw new HttpError(404, 'Ese personaje no estaba quitado.');
     res.json(panelState());
   });
 

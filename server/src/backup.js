@@ -90,20 +90,34 @@ async function restoreBackup(store, zipPath) {
     });
 
     if (!raw || typeof raw !== 'object' || !raw.modpacks) throw new BackupError('El .zip no es una copia de seguridad de este panel.');
+    // Imprescindibles: los mods y archivos de los modpacks. Los del historial
+    // (versiones anteriores) se recuperan si vienen en la copia.
     const needed = new Set();
-    for (const modpack of Object.values(raw.modpacks)) {
-      for (const mod of (modpack && modpack.mods) || []) {
-        if (!mod || !/^[a-f0-9]{40}$/.test(mod.sha1)) throw new BackupError('La lista de mods de la copia no es válida.');
-        needed.add(mod.sha1);
+    const wanted = new Set();
+    const collect = (state, into) => {
+      for (const item of [...((state && state.mods) || []), ...((state && state.files) || [])]) {
+        if (!item || !/^[a-f0-9]{40}$/.test(item.sha1)) throw new BackupError('La lista de mods de la copia no es válida.');
+        into.add(item.sha1);
       }
+    };
+    for (const modpack of Object.values(raw.modpacks)) collect(modpack, needed);
+    for (const list of Object.values(raw.history || {})) {
+      for (const state of Array.isArray(list) ? list : []) collect(state, wanted);
     }
     const missing = [...needed].filter((sha1) => !extracted.has(sha1) && !fs.existsSync(store.filePath(sha1)));
     if (missing.length > 0) throw new BackupError(`A la copia le faltan ${missing.length} mods: no se puede restaurar.`);
 
     for (const sha1 of extracted) {
-      if (needed.has(sha1) && !fs.existsSync(store.filePath(sha1))) {
+      if ((needed.has(sha1) || wanted.has(sha1)) && !fs.existsSync(store.filePath(sha1))) {
         fs.renameSync(path.join(workDir, `${sha1}.jar`), store.filePath(sha1));
       }
+    }
+    // Una versión del historial a la que le falte algún archivo ya no se puede recuperar: se descarta.
+    for (const [id, list] of Object.entries(raw.history || {})) {
+      if (!Array.isArray(list)) continue;
+      raw.history[id] = list.filter((state) =>
+        [...(state.mods || []), ...(state.files || [])].every((item) => fs.existsSync(store.filePath(item.sha1))),
+      );
     }
     store.replaceData(raw);
     return { mods: needed.size };

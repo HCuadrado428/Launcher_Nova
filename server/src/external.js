@@ -48,4 +48,20 @@ async function lookupMojangProfile(nick) {
   return { uuid: normalizeUuid(body.id), name: body.name };
 }
 
-module.exports = { createGoogleVerifier, fetchMinecraftProfile, lookupMojangProfile, normalizeUuid };
+// Cliente mínimo de la API de CurseForge: devuelve una función
+// (ruta, parámetros) => JSON que manda la clave en la cabecera.
+function createCurseforgeClient(apiKey) {
+  return async (pathname, params = {}) => {
+    const url = new URL(pathname, 'https://api.curseforge.com');
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+    const res = await fetch(url, {
+      headers: { 'x-api-key': apiKey, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`CurseForge respondió ${res.status}`);
+    return res.json();
+  };
+}
+
+module.exports = {
+  createCurseforgeClient, createGoogleVerifier, fetchMinecraftProfile, lookupMojangProfile, normalizeUuid };
