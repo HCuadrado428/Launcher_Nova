@@ -197,8 +197,20 @@ function createApp(options) {
   // de la lista tenga efecto al momento.
   const isAdmin = (session) => session.premium === true && store.isAdminUuid(session.uuid);
 
+  // Cuántos personajes (nicks sin premium para entrar al juego) puede tener
+  // esa cuenta: los admins, el máximo; el resto, lo que le haya dado el dueño.
+  function characterLimit(session) {
+    return isAdmin(session) ? MAX_CHARACTERS : store.characterLimit(playerKey(session));
+  }
+
   function playerInfo(session) {
-    return { name: session.name, uuid: session.uuid, premium: session.premium === true, admin: isAdmin(session) };
+    return {
+      name: session.name,
+      uuid: session.uuid,
+      premium: session.premium === true,
+      admin: isAdmin(session),
+      characterLimit: characterLimit(session),
+    };
   }
 
   function accessibleModpack(req) {
@@ -248,10 +260,11 @@ function createApp(options) {
   // launcher manda la lista entera cada vez que cambia; aquí solo se guardan
   // los nicks, para que el dueño los vea en el panel y no pisen a nadie.
   app.put('/api/me/characters', requirePlayer, (req, res) => {
-    if (!isAdmin(req.session)) throw new HttpError(403, 'Los personajes son solo para cuentas admin.');
+    const limit = characterLimit(req.session);
+    if (limit === 0) throw new HttpError(403, 'Tu cuenta no tiene permiso para usar personajes.');
     const list = req.body && req.body.characters;
-    if (!Array.isArray(list) || list.length > MAX_CHARACTERS) {
-      throw new HttpError(400, `Se pueden tener hasta ${MAX_CHARACTERS} personajes.`);
+    if (!Array.isArray(list) || list.length > limit) {
+      throw new HttpError(400, limit === 1 ? 'Puedes tener 1 personaje.' : `Puedes tener hasta ${limit} personajes.`);
     }
     const nicks = [];
     for (const nick of list) {
@@ -661,6 +674,17 @@ function createApp(options) {
   });
 
   // ---------- Personajes de los admins ----------
+
+  // Permiso de personajes para un jugador que no es admin: cuántos puede
+  // tener (0 se lo quita). Los admins ya tienen el máximo.
+  app.put('/api/panel/players/:key/character-limit', requireOwner, (req, res) => {
+    const limit = Number(req.body && req.body.limit);
+    if (!Number.isInteger(limit) || limit < 0 || limit > MAX_CHARACTERS) {
+      throw new HttpError(400, `El número de personajes va de 0 a ${MAX_CHARACTERS}.`);
+    }
+    if (!store.setCharacterLimit(req.params.key, limit)) throw new HttpError(404, 'Ese jugador no está en la lista.');
+    res.json(panelState());
+  });
 
   // Quita un personaje a un admin y no le deja volver a ponerlo.
   app.delete('/api/panel/players/:key/characters/:nick', requireOwner, (req, res) => {

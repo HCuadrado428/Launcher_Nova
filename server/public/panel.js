@@ -732,6 +732,9 @@ function smallButton(text, className = 'btn btn-ghost btn-small') {
   return button;
 }
 
+// Tope de personajes extra que se le pueden dar a un jugador (el mismo que tienen los admins).
+const MAX_PLAYER_CHARACTERS = 12;
+
 function playerRow(player) {
   const row = document.createElement('tr');
   const cell = (...children) => {
@@ -800,10 +803,41 @@ function playerRow(player) {
       status.append(reason);
     }
   }
-  if (!player.admin && !player.ban) status.append('—');
+  // Permiso de personajes de quien no es admin (los admins ya lo tienen).
+  const limit = player.admin ? 0 : player.characterLimit || 0;
+  if (limit > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'tag tag-characters';
+    badge.textContent = limit === 1 ? '1 personaje extra' : `${limit} personajes extra`;
+    status.append(badge);
+  }
+  if (!player.admin && !player.ban && limit === 0) status.append('—');
 
   const actions = cell();
   actions.className = 'player-actions';
+  // Personajes: un nick extra para entrar al juego desde el modpack normal
+  // (para quien lleva dos personajes de rol). Se da de uno en uno.
+  if (!player.admin) {
+    const setLimit = (value, text) => () =>
+      run(() => api(playerUrl(player, '/character-limit'), { method: 'PUT', body: { limit: value } }), text);
+    if (limit === 0) {
+      const allow = smallButton('Dar personaje extra');
+      allow.addEventListener('click', setLimit(1, `${player.name} ya puede tener 1 personaje extra.`));
+      actions.append(allow);
+    } else {
+      if (limit < MAX_PLAYER_CHARACTERS) {
+        const more = smallButton('+1 personaje');
+        more.addEventListener('click', setLimit(limit + 1, `${player.name} ya puede tener ${limit + 1} personajes extra.`));
+        actions.append(more);
+      }
+      const less = smallButton(limit === 1 ? 'Quitar personajes' : '−1 personaje');
+      confirmButton(
+        less,
+        setLimit(limit - 1, limit === 1 ? `${player.name} ya no puede usar personajes.` : `${player.name} baja a ${limit - 1}.`),
+      );
+      actions.append(less);
+    }
+  }
   if (player.premium) {
     const admin = state.admins.find((a) => a.uuid === player.uuid);
     const toggle = smallButton(admin ? 'Quitar admin' : 'Hacer admin');

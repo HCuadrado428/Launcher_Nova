@@ -884,3 +884,45 @@ test('espacio: se ve lo que ocupa el historial y se puede vaciar', async () => {
   assert.deepEqual(after.history, { normal: [], admin: [] });
   assert.ok(!fs.existsSync(path.join(dataDir, 'files', `${sha1(old)}.jar`)), 'el .jar que solo estaba en el historial se borra');
 });
+
+test('permiso de personajes para un jugador que no es admin (rol de dos personajes)', async () => {
+  const { owner, player } = await login();
+  const offline = (await api('/api/auth/offline', { method: 'POST', body: { username: 'Huevo_Rol' } })).data.token;
+  await api('/api/modpacks', { token: offline });
+  const put = (token, characters) => api('/api/me/characters', { method: 'PUT', token, body: { characters } });
+  const me = async (token) => (await api('/api/me', { token })).data.player;
+  const key = (await api('/api/panel/state', { token: owner })).data.players.find((p) => p.name === 'Huevo_Rol').key;
+  const limit = (value, token = owner) =>
+    api(`/api/panel/players/${encodeURIComponent(key)}/character-limit`, { method: 'PUT', token, body: { limit: value } });
+
+  // Sin permiso no puede tener personajes.
+  assert.equal((await me(offline)).characterLimit, 0);
+  assert.equal((await put(offline, ['Huevo_Uno'])).status, 403);
+  assert.equal((await limit(2, player)).status, 401);
+  assert.equal((await limit(99)).status, 400);
+  assert.equal((await limit(1.5)).status, 400);
+
+  // El dueño le deja tener 1 personaje extra: ni uno más, y sigue sin ser admin.
+  const allowed = await limit(1);
+  assert.equal(allowed.data.players.find((p) => p.key === key).characterLimit, 1);
+  assert.equal((await put(offline, ['Huevo_Uno', 'Huevo_Dos'])).status, 400);
+  assert.equal((await put(offline, ['Huevo_Uno'])).status, 200);
+  // Si necesita otro, el dueño le sube el límite desde el panel.
+  await limit(2);
+  const info = await me(offline);
+  assert.equal(info.admin, false);
+  assert.equal(info.characterLimit, 2);
+  assert.equal((await put(offline, ['Huevo_Uno', 'Huevo_Dos', 'Huevo_Tres'])).status, 400);
+  assert.equal((await put(offline, ['Huevo_Uno', 'Huevo_Dos'])).status, 200);
+  assert.equal((await api('/api/modpacks/admin/manifest', { token: offline })).status, 403);
+  // El permiso se conserva aunque el jugador vuelva a abrir el launcher.
+  await api('/api/modpacks', { token: offline });
+  assert.equal((await me(offline)).characterLimit, 2);
+
+  // Al bajarle el límite se quita el que sobra; al quitárselo, todos.
+  const lower = await limit(1);
+  assert.deepEqual(lower.data.players.find((p) => p.key === key).characters, ['Huevo_Uno']);
+  const none = await limit(0);
+  assert.equal(none.data.players.find((p) => p.key === key).characters, undefined);
+  assert.equal((await put(offline, ['Huevo_Uno'])).status, 403);
+});

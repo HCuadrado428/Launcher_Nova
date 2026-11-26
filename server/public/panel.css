@@ -969,3 +969,8 @@ input::placeholder {
   border-color: #e06c5a;
   color: #f0a79b;
 }
+
+.tag-characters {
+  border-color: rgba(46, 204, 113, 0.5);
+  color: var(--emerald);
+}

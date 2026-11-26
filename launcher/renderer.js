@@ -29,9 +29,13 @@ const running = new Set(); // modpacks con el juego abierto
 const logs = {}; // salida del juego, por modpack
 const runningAs = {}; // personaje con el que está abierto cada modpack (si lo hay)
 // Personajes del admin (nicks sin premium para el modpack de admins).
-let chars = { available: false, characters: [], selected: null, models: [] };
+let chars = { available: false, pack: null, limit: 0, characters: [], selected: null, models: [] };
 let charDraft = []; // copia que se edita en el diálogo
-const SECOND_SEAT = 'admin:2'; // segunda ventana del modpack de admins
+// Modpack en el que esta cuenta usa personajes ('admin', 'normal' o null) y
+// clave de su segunda ventana.
+const charPack = () => (chars.available ? chars.pack : null);
+const seatOf = (pack) => `${pack}:2`;
+const isSeat = (id) => String(id).endsWith(':2');
 let seatOpening = false;
 let hasCurseforge = false; // el servidor permite buscar en CurseForge
 let maintenance = null; // aviso de mantenimiento del dueño, o null
@@ -48,7 +52,7 @@ function phaseOf(id = selectedId) {
 }
 // ¿Se puede tocar la carpeta de ese modpack (mods, importar, reparar)?
 const isBusy = (id = selectedId) =>
-  running.has(id) || preparingId === id || (id === 'admin' && (running.has(SECOND_SEAT) || seatOpening));
+  running.has(id) || preparingId === id || running.has(seatOf(id)) || (id === charPack() && seatOpening);
 const anyGame = () => preparingId !== null || running.size > 0;
 
 // ---------- Utilidades ----------
@@ -604,7 +608,7 @@ $('playBtn').addEventListener('click', async () => {
     return;
   }
   if (phaseOf(id) !== 'idle') return;
-  if (id === 'admin' && (running.has(SECOND_SEAT) || seatOpening)) {
+  if (running.has(seatOf(id)) || (id === charPack() && seatOpening)) {
     toast(t('char.closeSecond'), 'error');
     return;
   }
@@ -654,7 +658,7 @@ bridge.onGameClosed(({ code, crash, modpackId, playtime: updated }) => {
   if (page === 'shots') refreshShots();
   renderPlayButton();
   // Los registros de la segunda ventana están con los del modpack de admins.
-  if (crash) showCrash(code, crash, modpackId === SECOND_SEAT ? 'admin' : modpackId);
+  if (crash) showCrash(code, crash, isSeat(modpackId) ? modpackId.slice(0, -2) : modpackId);
 });
 
 bridge.onGameLog(addLog);
@@ -674,7 +678,7 @@ async function loadCharacters() {
   try {
     chars = await bridge.getCharacters();
   } catch {
-    chars = { available: false, characters: [], selected: null, models: [] };
+    chars = { available: false, pack: null, limit: 0, characters: [], selected: null, models: [] };
   }
   renderCharBox();
 }
@@ -699,7 +703,7 @@ function charOption(value, text) {
 
 function renderCharBox() {
   const box = $('charBox');
-  box.hidden = !(chars.available && selectedId === 'admin');
+  box.hidden = !(chars.available && selectedId === chars.pack);
   renderSeatBox();
   if (box.hidden) return;
   const select = $('charSelect');
@@ -711,25 +715,27 @@ function renderCharBox() {
   const current = chars.characters.find((c) => c.nick === chars.selected);
   setIcon($('charIcon'), current ? current.model : null);
   // Con el juego abierto o preparándose ya no se cambia con quién se entra.
-  select.disabled = isBusy('admin');
-  $('charManage').disabled = isBusy('admin');
+  select.disabled = isBusy(chars.pack);
+  $('charManage').disabled = isBusy(chars.pack);
 }
 
 // Segunda ventana: solo con el modpack de admins ya abierto y algún personaje
 // que no sea el que está dentro en la primera.
 function renderSeatBox() {
   const box = $('seatBox');
-  const open = running.has(SECOND_SEAT);
-  const first = chars.characters.find((c) => charName(c.nick) === runningAs.admin);
+  const pack = charPack();
+  const seat = seatOf(pack);
+  const open = running.has(seat);
+  const first = chars.characters.find((c) => charName(c.nick) === runningAs[pack]);
   const free = chars.characters.filter((c) => c !== first);
-  box.hidden = !(chars.available && selectedId === 'admin' && (open || seatOpening || (running.has('admin') && free.length > 0)));
+  box.hidden = !(pack && selectedId === pack && (open || seatOpening || (running.has(pack) && free.length > 0)));
   if (box.hidden) return;
   const select = $('seatSelect');
   const button = $('seatBtn');
   select.hidden = open;
   $('seatRunning').hidden = !open;
   if (open) {
-    $('seatRunning').textContent = runningAs[SECOND_SEAT] || '';
+    $('seatRunning').textContent = runningAs[seat] || '';
     button.textContent = t('char.secondClose');
     button.disabled = false;
     return;
@@ -744,8 +750,8 @@ function renderSeatBox() {
 }
 
 $('seatBtn').addEventListener('click', async () => {
-  if (running.has(SECOND_SEAT)) {
-    bridge.stopGame(SECOND_SEAT);
+  if (running.has(seatOf(charPack()))) {
+    bridge.stopGame(seatOf(charPack()));
     return;
   }
   const nick = $('seatSelect').value;
@@ -779,6 +785,8 @@ function charMessage(text) {
 
 function renderCharRows() {
   $('charEmpty').hidden = charDraft.length > 0;
+  // No se pueden añadir más de los que permite la cuenta.
+  $('charAdd').disabled = charDraft.length >= chars.limit;
   $('charRows').replaceChildren(
     ...charDraft.map((character, index) => {
       const li = document.createElement('li');
@@ -836,7 +844,7 @@ function renderCharRows() {
 }
 
 $('charManage').addEventListener('click', async () => {
-  if (isBusy('admin')) {
+  if (isBusy(chars.pack)) {
     toast(t('char.closeFirst'), 'error');
     return;
   }

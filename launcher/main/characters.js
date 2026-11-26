@@ -132,10 +132,10 @@ function selectModel(instanceDir, model) {
 
 // Limpia la lista que llega de la ventana. Lanza un error con «code» (y «nick»)
 // si algo no vale: 'many', 'nick' o 'repeated'.
-function normalizeCharacters(list) {
+function normalizeCharacters(list, limit = MAX_CHARACTERS) {
   const fail = (code, nick) => Object.assign(new Error(code), { code, nick });
   if (!Array.isArray(list)) return [];
-  if (list.length > MAX_CHARACTERS) throw fail('many');
+  if (list.length > limit) throw fail('many');
   const seen = new Set();
   return list.map((raw) => {
     const nick = String((raw && raw.nick) || '').trim();

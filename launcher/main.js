@@ -27,7 +27,13 @@ const { ensureJava } = require('./main/java');
 const { launchGame } = require('./main/launch');
 const { analyzeCrash } = require('./main/crash');
 const { memoryPlan, memoryForExtraGame } = require('./main/memory');
-const { describeModels, selectModel, normalizeCharacters, findCharacter } = require('./main/characters');
+const {
+  MAX_CHARACTERS,
+  describeModels,
+  selectModel,
+  normalizeCharacters,
+  findCharacter,
+} = require('./main/characters');
 const { prepareSeat } = require('./main/seat');
 const { dueAlert } = require('./main/events');
 const curseforge = require('./main/curseforge');
@@ -45,14 +51,14 @@ const MS_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 let mainWindow = null;
 // Juegos abiertos, por modpack: { child, startedAt, log, memoryGb, stoppedByUser,
-// nick, versionId, javaPath }. El modpack de admins puede tener además una
-// segunda ventana con otro personaje, con la clave SECOND_SEAT.
+// nick, versionId, javaPath }. Quien tiene personajes puede abrir además una
+// segunda ventana de su modpack con otro personaje: clave «<modpack>:2».
 // Puede haber uno por modpack a la vez (un admin con el normal y el de admins).
 const games = new Map();
-const SECOND_SEAT = 'admin:2';
-const SECOND_SEAT_DIR = 'admin-2';
+const seatId = (pack) => `${pack}:2`;
+const seatDirName = (pack) => `${pack}-2`;
 // ¿Hay algún juego usando la carpeta de ese modpack?
-const packInUse = (id) => games.has(id) || (id === 'admin' && games.has(SECOND_SEAT));
+const packInUse = (id) => games.has(id) || games.has(seatId(id));
 let busy = false; // hay una preparación/lanzamiento en marcha (de una en una)
 // Invitación al Discord que da el backend (se comprueba antes de abrirla).
 const DISCORD_URL_RE = /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/;
@@ -223,37 +229,54 @@ ipcMain.handle('logout', () => {
 });
 
 // ============================================================================
-// PERSONAJES (nicks sin premium de un admin para el modpack de admins)
+// PERSONAJES (nicks sin premium con los que entrar al juego sin cambiar de cuenta)
 // ============================================================================
 
-// Se guardan por cuenta: { [uuid]: { list: [{ nick, label, model }], selected: nick|null } }.
+// Los tienen los admins (en el modpack de admins, hasta MAX_CHARACTERS) y los
+// jugadores a los que el dueño les da permiso desde el panel (en el modpack
+// normal, tantos como les haya dado: p. ej. quien lleva dos personajes de rol).
+// Se guardan por cuenta: { [id]: { list: [{ nick, label, model }], selected: nick|null } }.
 function ownCharacters() {
   const account = loadConfig().account;
-  const admin = account && account.type === 'microsoft' && account.player && account.player.admin;
-  if (!admin) return null;
-  const saved = (loadConfig().characters || {})[account.uuid] || {};
-  return { uuid: account.uuid, list: saved.list || [], selected: saved.selected || null };
+  if (!account || !account.player) return null;
+  const admin = account.type === 'microsoft' && account.player.admin === true;
+  const limit = admin ? MAX_CHARACTERS : Math.min(MAX_CHARACTERS, Number(account.player.characterLimit) || 0);
+  if (limit <= 0) return null;
+  // Una cuenta sin premium no tiene UUID propio: se guarda por su nick.
+  const id = account.type === 'microsoft' ? account.uuid : `offline:${String(account.username).toLowerCase()}`;
+  const saved = (loadConfig().characters || {})[id] || {};
+  return {
+    uuid: id,
+    pack: admin ? 'admin' : 'normal',
+    limit,
+    // Si el dueño le baja el límite, los que sobran dejan de poder usarse.
+    list: (saved.list || []).slice(0, limit),
+    selected: saved.selected || null,
+  };
+}
+
+// Personaje con el que se entra a ese modpack, o null (cuenta propia).
+function characterFor(modpackId) {
+  const own = ownCharacters();
+  return own && own.pack === modpackId ? findCharacter(own.list, own.selected) : null;
 }
 
 function saveCharacters(uuid, value) {
   saveConfig({ characters: { ...(loadConfig().characters || {}), [uuid]: value } });
 }
 
-// Personaje con el que se va a entrar, o null para entrar con la cuenta propia.
-function activeCharacter() {
-  const own = ownCharacters();
-  return own ? findCharacter(own.list, own.selected) : null;
-}
-
 function charactersState() {
   const own = ownCharacters();
-  if (!own) return { available: false, characters: [], selected: null, models: [] };
+  if (!own) return { available: false, pack: null, limit: 0, characters: [], selected: null, models: [] };
   const selected = findCharacter(own.list, own.selected);
   return {
     available: true,
+    // Modpack en el que se usan, y cuántos puede tener.
+    pack: own.pack,
+    limit: own.limit,
     characters: own.list,
     selected: selected ? selected.nick : null,
-    models: describeModels(instanceDir('admin')),
+    models: describeModels(instanceDir(own.pack)),
   };
 }
 
@@ -281,11 +304,11 @@ ipcMain.handle('save-characters', async (event, list) => {
   if (!own) throw new Error(t('char.onlyAdmins'));
   let characters;
   try {
-    characters = normalizeCharacters(list);
+    characters = normalizeCharacters(list, own.limit);
   } catch (err) {
     if (err.code === 'nick') throw new Error(t('char.errNick', { nick: err.nick || '—' }));
     if (err.code === 'repeated') throw new Error(t('char.errRepeated', { nick: err.nick }));
-    if (err.code === 'many') throw new Error(t('char.errMany'));
+    if (err.code === 'many') throw new Error(t('char.errMany', { n: own.limit }));
     throw err;
   }
   // El servidor apunta los nicks (el dueño los ve en el panel) y avisa si
@@ -739,7 +762,7 @@ async function play(modpackId) {
   // En el modpack de admins se puede entrar como uno de los personajes del
   // admin: un nick sin premium, con su modelo de CPM ya elegido. Que la cuenta
   // es admin ya lo ha comprobado el servidor al dar el manifiesto.
-  const character = modpackId === 'admin' ? activeCharacter() : null;
+  const character = characterFor(modpackId);
   let account;
   if (character) {
     account = { type: 'offline', username: character.nick };
@@ -831,25 +854,30 @@ function reportCrash(crash) {
   withSession((token) => api.reportCrash(backendUrl(), token, suspects)).catch(() => {});
 }
 
-// Abre una segunda ventana del modpack de admins con otro personaje, mientras
-// la primera sigue abierta. Usa una carpeta espejo (main/seat.js): mismos
+// Abre una segunda ventana del modpack con otro personaje, mientras la
+// primera sigue abierta. Usa una carpeta espejo (main/seat.js): mismos
 // mods y mundos, configuración copiada, y su propio modelo de CPM.
 async function playSecond(nick) {
-  const first = games.get('admin');
-  if (!first) throw new Error(t('char.secondNeedsFirst'));
   const own = ownCharacters();
   const character = own ? findCharacter(own.list, nick) : null;
   if (!character) throw new Error(t('char.onlyAdmins'));
+  const pack = own.pack;
+  const seat = seatId(pack);
+  if (games.has(seat)) throw new Error(t('err.busy'));
+  const first = games.get(pack);
+  if (!first) throw new Error(t('char.secondNeedsFirst'));
   if (first.nick && first.nick.toLowerCase() === character.nick.toLowerCase()) throw new Error(t('char.secondSame'));
-  // El servidor confirma que la cuenta sigue siendo admin antes de abrir nada.
-  await withSession((token) => api.getManifest(backendUrl(), token, 'admin'));
+  // El servidor confirma que la cuenta sigue teniendo acceso (y que no hay
+  // mantenimiento) antes de abrir nada.
+  const manifest = await withSession((token) => api.getManifest(backendUrl(), token, pack));
+  if (manifest.maintenance) throw new Error(t('maint.blocked', { message: String(manifest.maintenance).slice(0, 200) }));
 
-  const mainDir = instanceDir('admin');
-  const dir = instanceDir(SECOND_SEAT_DIR);
+  const mainDir = instanceDir(pack);
+  const dir = instanceDir(seatDirName(pack));
   prepareSeat(mainDir, dir);
   const log = (line) => {
     first.log.push(line);
-    send('game-log', { modpackId: 'admin', line });
+    send('game-log', { modpackId: pack, line });
   };
   if (character.model && !selectModel(dir, character.model)) log(t('char.modelMissing', { model: character.model }));
 
@@ -866,32 +894,34 @@ async function playSecond(nick) {
       javaPath: first.javaPath,
       memoryGb,
       serverAddress: SERVER_ADDRESS,
-      joinOnStart: false,
-      freeMenu: true,
+      // Igual que la primera ventana: el de admins abre en el menú de Minecraft;
+      // el normal, en el menú de NOVA 2 (y entra solo si así está en Ajustes).
+      joinOnStart: cfg.joinServer && pack !== 'admin',
+      freeMenu: pack === 'admin',
     },
     {
       // Sus líneas salen en la consola del modpack de admins, marcadas.
       onLog: (line) => {
         game.log.push(line);
         if (game.log.length > MAX_GAME_LOG_LINES) game.log.splice(0, game.log.length - MAX_GAME_LOG_LINES);
-        send('game-log', { modpackId: 'admin', line: `[2] ${line}` });
+        send('game-log', { modpackId: pack, line: `[2] ${line}` });
       },
       onClose: (code) => {
         game.closed = true;
-        games.delete(SECOND_SEAT);
+        games.delete(seat);
         const failed = code !== 0 && !game.stoppedByUser;
         const crash = failed ? analyzeCrash({ instanceDir: dir, since: game.startedAt - 5000, logLines: game.log }) : null;
         if (failed) reportCrash(crash);
-        send('game-closed', { code, crash, modpackId: SECOND_SEAT });
+        send('game-closed', { code, crash, modpackId: seat });
       },
     },
   );
-  if (!game.closed) games.set(SECOND_SEAT, game);
-  send('game-started', { id: SECOND_SEAT, character: character.nick });
+  if (!game.closed) games.set(seat, game);
+  send('game-started', { id: seat, character: character.nick });
 }
 
 ipcMain.handle('play-second', async (event, nick) => {
-  if (busy || games.has(SECOND_SEAT)) return { ok: false, message: t('err.busy') };
+  if (busy) return { ok: false, message: t('err.busy') };
   busy = true;
   try {
     await playSecond(String(nick || ''));

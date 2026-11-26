@@ -484,6 +484,7 @@ function createStore(dataDir) {
         ...(known && known.characters ? { characters: known.characters } : {}),
         ...(known && known.blockedCharacters ? { blockedCharacters: known.blockedCharacters } : {}),
         ...(known && known.disabled ? { disabled: known.disabled } : {}),
+        ...(known && known.characterLimit ? { characterLimit: known.characterLimit } : {}),
       };
       save();
     },
@@ -510,6 +511,25 @@ function createStore(dataDir) {
       else delete own.characters;
       save();
       return null;
+    },
+
+    // Cuántos personajes puede tener un jugador que no es admin (0: ninguno).
+    // Lo da el dueño desde el panel, p. ej. a quien lleva dos personajes de rol.
+    characterLimit: (key) => (data.players[key] && data.players[key].characterLimit) || 0,
+
+    // Al bajar el límite se quitan los personajes que sobran (los últimos),
+    // para que esos nicks vuelvan a estar libres.
+    setCharacterLimit(key, limit) {
+      const player = data.players[key];
+      if (!player) return false;
+      if (limit > 0) player.characterLimit = limit;
+      else delete player.characterLimit;
+      if (player.characters) {
+        player.characters = player.characters.slice(0, limit);
+        if (player.characters.length === 0) delete player.characters;
+      }
+      save();
+      return true;
     },
 
     // El dueño quita un personaje a un admin: deja de estar en su lista y
