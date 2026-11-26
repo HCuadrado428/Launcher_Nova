@@ -773,9 +773,8 @@ async function play(modpackId) {
     account = await refreshMicrosoft(loadConfig().account);
   }
   progress(5, t('prog.starting'));
-  // Con otro modpack ya abierto, a este se le da la memoria que queda libre.
-  const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
-  const memoryGb = memoryForExtraGame(os.totalmem(), cfg, usedGb);
+  // Con otro juego ya abierto, a este se le da la memoria que queda libre.
+  const memoryGb = memoryForGame(cfg);
   const game = {
     child: null,
     startedAt: Date.now(),
@@ -847,6 +846,19 @@ ipcMain.handle('play', async (event, modpackId) => {
   }
 });
 
+// Memoria para el juego que se va a abrir, contando los que ya están abiertos.
+// Si no cabe, se para aquí con un mensaje que dice qué hacer: abrirlo igual
+// cerraría por falta de memoria los dos juegos.
+function memoryForGame(cfg) {
+  const open = [...games.values()].map((other) => other.memoryGb);
+  const result = memoryForExtraGame(os.totalmem(), cfg, open);
+  if (result.memoryGb !== null) return result.memoryGb;
+  const total = Math.round(os.totalmem() / 1024 ** 3);
+  throw new Error(
+    result.suggestGb ? t('mem.noRoomSuggest', { total, n: result.suggestGb }) : t('mem.noRoom', { total }),
+  );
+}
+
 // Cuenta al servidor que el juego se ha cerrado por error, con los mods que
 // señala el informe. Si no hay conexión, no pasa nada.
 function reportCrash(crash) {
@@ -882,8 +894,7 @@ async function playSecond(nick) {
   if (character.model && !selectModel(dir, character.model)) log(t('char.modelMissing', { model: character.model }));
 
   const cfg = settings();
-  const usedGb = [...games.values()].reduce((sum, other) => sum + other.memoryGb, 0);
-  const memoryGb = memoryForExtraGame(os.totalmem(), cfg, usedGb);
+  const memoryGb = memoryForGame(cfg);
   const game = { child: null, startedAt: Date.now(), log: [], memoryGb, stoppedByUser: false, nick: character.nick };
   game.child = await launchGame(
     {
