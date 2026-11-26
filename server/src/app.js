@@ -716,6 +716,15 @@ function createApp(options) {
     res.json(panelState());
   });
 
+  // Quita a un jugador de la lista (limpieza). No es una suspensión.
+  app.delete('/api/panel/players/:key', requireOwner, (req, res) => {
+    // A un suspendido no se le quita: dejaría de verse en la lista y no habría
+    // forma de levantarle la suspensión desde el panel.
+    if (store.activeBan(req.params.key)) throw new HttpError(409, 'Quítale antes la suspensión.');
+    if (!store.removePlayer(req.params.key)) throw new HttpError(404, 'Ese jugador no está en la lista.');
+    res.json(panelState());
+  });
+
   app.delete('/api/panel/players/:key/ban', requireOwner, (req, res) => {
     if (!store.removeBan(req.params.key)) throw new HttpError(404, 'Ese jugador no tiene el acceso suspendido.');
     res.json(panelState());

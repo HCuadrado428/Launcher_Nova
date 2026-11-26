@@ -896,6 +896,18 @@ function playerRow(player) {
     box.append(summary, form);
     actions.append(box);
   }
+  // Quitar de la lista: limpia nicks viejos o de prueba y libera sus
+  // personajes. No impide que vuelva (para eso está Suspender).
+  const remove = smallButton('Quitar de la lista');
+  if (player.ban) {
+    remove.disabled = true;
+    remove.title = 'Quítale antes la suspensión';
+  }
+  confirmButton(remove, () =>
+    run(() => api(playerUrl(player, ''), { method: 'DELETE' }), `${player.name} ya no está en la lista. Si vuelve a abrir el launcher, aparecerá de nuevo.`),
+  );
+  actions.append(remove);
+
   return row;
 }
 

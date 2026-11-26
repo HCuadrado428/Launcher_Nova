@@ -926,3 +926,31 @@ test('permiso de personajes para un jugador que no es admin (rol de dos personaj
   assert.equal(none.data.players.find((p) => p.key === key).characters, undefined);
   assert.equal((await put(offline, ['Huevo_Uno'])).status, 403);
 });
+
+test('quitar a un jugador de la lista lo borra con sus personajes, pero no le impide volver', async () => {
+  const { owner, player } = await login();
+  const token = (await api('/api/auth/offline', { method: 'POST', body: { username: 'Nick_Viejo' } })).data.token;
+  await api('/api/modpacks', { token });
+  const find = async () => (await api('/api/panel/state', { token: owner })).data.players.find((p) => p.name === 'Nick_Viejo');
+  const url = `/api/panel/players/${encodeURIComponent((await find()).key)}`;
+  await api(`${url}/character-limit`, { method: 'PUT', token: owner, body: { limit: 1 } });
+  await api('/api/me/characters', { method: 'PUT', token, body: { characters: ['Pj_Viejo'] } });
+
+  assert.equal((await api(url, { method: 'DELETE', token: player })).status, 401);
+  assert.equal((await api(url, { method: 'DELETE', token: owner })).status, 200);
+  assert.equal(await find(), undefined);
+  assert.equal((await api(url, { method: 'DELETE', token: owner })).status, 404);
+
+  // Si vuelve a abrir el launcher, aparece otra vez, sin permiso ni personajes.
+  assert.equal((await api('/api/modpacks', { token })).status, 200);
+  const again = await find();
+  assert.equal(again.characterLimit, undefined);
+  assert.equal(again.characters, undefined);
+
+  // A alguien suspendido no se le puede quitar: no habría forma de levantarle la suspensión.
+  await api(`${url}/ban`, { method: 'PUT', token: owner, body: { hours: 24, reason: 'prueba' } });
+  assert.equal((await api(url, { method: 'DELETE', token: owner })).status, 409);
+  assert.ok(await find());
+  await api(`${url}/ban`, { method: 'DELETE', token: owner });
+  assert.equal((await api(url, { method: 'DELETE', token: owner })).status, 200);
+});

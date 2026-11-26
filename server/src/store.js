@@ -640,6 +640,15 @@ function createStore(dataDir) {
 
     hasPlayer: (key) => Object.hasOwn(data.players, key),
 
+    // Quita a un jugador de la lista (con sus personajes y su permiso). No le
+    // impide volver: si abre el launcher otra vez, aparece de nuevo, desde cero.
+    removePlayer(key) {
+      if (!data.players[key]) return false;
+      delete data.players[key];
+      save();
+      return true;
+    },
+
     // Suspensión en vigor de ese jugador, o null. Las caducadas se borran solas.
     activeBan(key) {
       const ban = data.bans[key];
