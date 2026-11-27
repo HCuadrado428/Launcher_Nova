@@ -30,6 +30,9 @@
           <span>NOVA 2 <em>· PANEL</em></span>
         </div>
         <div class="session">
+          <span class="live" id="liveState" data-state="off" title="Si está en verde, el panel se actualiza solo">
+            <span class="live-dot" aria-hidden="true"></span><span id="liveText">Conectando...</span>
+          </span>
           <span id="sessionEmail"></span>
           <button class="btn btn-ghost" id="logoutBtn" type="button">Salir</button>
         </div>
@@ -153,6 +156,7 @@
           </p>
           <div class="backup-actions">
             <button class="btn btn-purple" type="button" id="backupDownload">Descargar copia</button>
+            <label class="check-inline"><input type="checkbox" id="backupHistory" checked /> Incluir el historial</label>
             <label class="btn btn-ghost" for="backupFile">Restaurar una copia...</label>
             <input class="sr-only" type="file" id="backupFile" accept=".zip" />
           </div>

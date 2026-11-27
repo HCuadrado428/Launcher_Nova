@@ -20,12 +20,13 @@ let dataDir;
 
 function startApp(dir, extra = {}) {
   const app = createApp({
-    ...extra,
     dataDir: dir,
     jwtSecret: 'x'.repeat(48),
     ownerEmail: OWNER,
     googleClientId: 'test-client',
     rateLimitMax: 1000,
+    // Cada cambio cuenta en el historial (el agrupado se prueba aparte).
+    historyGroupMs: 0,
     verifyGoogleCredential: async (credential) => {
       if (credential === 'google-owner') return { email: OWNER };
       if (credential === 'google-otro') return { email: 'otro@gmail.com' };
@@ -40,9 +41,12 @@ function startApp(dir, extra = {}) {
       if (nick.toLowerCase() === 'adminnova') return { uuid: UUID_ADMIN, name: 'AdminNova' };
       return null;
     },
+    ...extra,
   });
   return new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    // Al cerrar, se escribe lo pendiente antes de que se borre la carpeta.
+    s.flushData = app.flushData;
   });
 }
 
@@ -53,6 +57,8 @@ before(async () => {
 });
 
 after(() => {
+  server.flushData();
+  server.closeAllConnections();
   server.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
@@ -836,6 +842,7 @@ test('CurseForge: sin clave no hay búsqueda; con clave se devuelve lo justo', a
     assert.equal((await api('/api/curseforge/mods/..%2Fgames/file?mc=1.20.1', { token })).status, 400);
   } finally {
     base = mainBase;
+    other.flushData();
     other.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -953,4 +960,104 @@ test('quitar a un jugador de la lista lo borra con sus personajes, pero no le im
   assert.ok(await find());
   await api(`${url}/ban`, { method: 'DELETE', token: owner });
   assert.equal((await api(url, { method: 'DELETE', token: owner })).status, 200);
+});
+
+test('historial: los cambios seguidos cuentan como uno y las etiquetas no cuentan', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), '.nova-hist-'));
+  const other = await startApp(dir, { historyGroupMs: 60_000 });
+  const mainBase = base;
+  base = `http://127.0.0.1:${other.address().port}`;
+  try {
+    const owner = (await api('/api/panel/login', { method: 'POST', body: { credential: 'google-owner' } })).data.token;
+    const history = async () => (await api('/api/panel/state', { token: owner })).data.history.normal;
+    const upload = (name, text) =>
+      api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([[name, fakeJar(text)]]) });
+
+    await upload('a.jar', 'a');
+    await upload('b.jar', 'b');
+    await upload('c.jar', 'c');
+    // Tres subidas seguidas: una sola versión guardada, la de antes de la primera.
+    let list = await history();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].modCount, 0);
+    assert.equal(list[0].label, 'Antes de subir 1 mod (y 2 cambios más)');
+
+    // Cambiar etiquetas no toca el historial.
+    const mods = (await api('/api/panel/state', { token: owner })).data.modpacks[0].mods;
+    await api(`/api/panel/modpacks/normal/mods/${mods[0].id}`, { method: 'PATCH', token: owner, body: { label: 'Uno' } });
+    assert.equal((await history())[0].label, 'Antes de subir 1 mod (y 2 cambios más)');
+
+    // Volver atrás siempre se guarda aparte, para poder deshacerlo.
+    await api(`/api/panel/modpacks/normal/history/${list[0].id}/restore`, { method: 'POST', token: owner });
+    list = await history();
+    assert.equal(list.length, 2);
+    assert.equal(list[0].modCount, 3);
+  } finally {
+    base = mainBase;
+    other.flushData();
+    other.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('copia de seguridad sin historial: más pequeña y se puede restaurar', async () => {
+  const { owner } = await login();
+  const old = fakeJar('solo en el historial (copia)');
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['copia.jar', old]]) });
+  await api('/api/panel/modpacks/normal/mods', { method: 'POST', token: owner, form: uploadForm([['copia.jar', fakeJar('nueva (copia)')]]) });
+  const download = async (withHistory) => {
+    const { url } = (await api('/api/panel/backup-link', { method: 'POST', token: owner, body: { withHistory } })).data;
+    const res = await fetch(base + url);
+    assert.equal(res.status, 200);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  const full = await download(true);
+  const small = await download(false);
+  assert.ok(full.includes(`files/${sha1(old)}.jar`));
+  assert.ok(!small.includes(`files/${sha1(old)}.jar`), 'sin el .jar que solo está en el historial');
+  assert.ok(small.length < full.length);
+
+  // Restaurarla deja los modpacks como estaban, con el historial vacío.
+  const form = new FormData();
+  form.append('backup', new Blob([small]), 'copia.zip');
+  const restored = await api('/api/panel/restore', { method: 'POST', token: owner, form });
+  assert.equal(restored.status, 200);
+  assert.deepEqual(restored.data.history, { normal: [], admin: [] });
+  assert.ok(restored.data.modpacks[0].mods.some((m) => m.filename === 'copia.jar'));
+});
+
+test('panel en tiempo real: avisa cuando un jugador abre el launcher', async () => {
+  const { owner, player } = await login();
+  assert.equal((await fetch(`${base}/api/panel/events`, { headers: { Authorization: `Bearer ${player}` } })).status, 401);
+
+  const controller = new AbortController();
+  const res = await fetch(`${base}/api/panel/events`, { headers: { Authorization: `Bearer ${owner}` }, signal: controller.signal });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/event-stream/);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let received = '';
+  // Una sola lectura pendiente cada vez: si se pierde la carrera con el
+  // reloj, se sigue esperando esa misma (si no, su texto se perdería).
+  let pendingRead = null;
+  const waitFor = async (pattern) => {
+    const deadline = Date.now() + 4000;
+    while (!pattern.test(received)) {
+      if (Date.now() > deadline) throw new Error(`no llegó ${pattern}: ${received}`);
+      pendingRead = pendingRead || reader.read();
+      const result = await Promise.race([pendingRead, new Promise((resolve) => setTimeout(() => resolve(null), 500))]);
+      if (!result) continue;
+      pendingRead = null;
+      if (result.done) break;
+      received += result.value;
+    }
+  };
+  await waitFor(/retry: 5000/);
+  // Un jugador nuevo abre el launcher: llega un solo aviso aunque haya varios cambios seguidos.
+  const token = (await api('/api/auth/offline', { method: 'POST', body: { username: 'En_Directo' } })).data.token;
+  await api('/api/modpacks', { token });
+  await api('/api/modpacks/normal/manifest?disabled=', { token });
+  await waitFor(/event: change/);
+  assert.equal(received.match(/event: change/g).length, 1);
+  controller.abort();
+  await new Promise((resolve) => setTimeout(resolve, 100));
 });

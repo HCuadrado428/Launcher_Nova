@@ -69,6 +69,11 @@ function looksLikeJar(file) {
   }
 }
 
+// Panel en tiempo real: pestañas a la vez, espera para juntar avisos y cada
+// cuánto se manda algo para que la conexión no se corte.
+const MAX_LIVE_CLIENTS = 10;
+const LIVE_DEBOUNCE_MS = 700;
+const LIVE_PING_MS = 25_000;
 // Cierres por error que se cuentan al día de un mismo jugador.
 const MAX_CRASHES_PER_PLAYER_DAY = 5;
 // Personajes (nicks sin premium) que puede tener cada admin.
@@ -91,7 +96,7 @@ function createApp(options) {
   const owner = String(ownerEmail || '').trim().toLowerCase();
   if (!owner) throw new Error('Falta OWNER_EMAIL.');
 
-  const store = createStore(dataDir);
+  const store = createStore(dataDir, options.historyGroupMs !== undefined ? { historyGroupMs: options.historyGroupMs } : {});
   store.backfillModIds(readModId).catch((err) => console.error('[ERROR] No se pudieron leer los modId:', err));
   const app = express();
   app.set('trust proxy', 1); // Railway pone un proxy delante
@@ -326,6 +331,8 @@ function createApp(options) {
   app.post('/api/me/crash', requirePlayer, (req, res) => {
     const key = playerKey(req.session);
     const day = new Date().toISOString().slice(0, 10);
+    // Al cambiar de día se olvida lo del anterior (si no, crecería sin parar).
+    for (const [other, entry] of crashReports) if (entry.day !== day) crashReports.delete(other);
     const seen = crashReports.get(key);
     const count = seen && seen.day === day ? seen.count + 1 : 1;
     crashReports.set(key, { day, count });
@@ -538,7 +545,11 @@ function createApp(options) {
     if (Object.keys(fields).length === 0) throw new HttpError(400, 'No hay nada que cambiar.');
     const target = panelModpack(req).mods.find((m) => m.id === req.params.modId);
     if (!target) throw new HttpError(404, 'Ese mod ya no está.');
-    store.snapshot(req.params.id, `Antes de cambiar ${target.filename}`);
+    // La etiqueta y la descripción no cambian el juego: no se guardan en el
+    // historial. Marcar o desmarcar como opcional, sí.
+    if (fields.optional !== undefined && fields.optional !== Boolean(target.optional)) {
+      store.snapshot(req.params.id, `Antes de cambiar ${target.filename}`);
+    }
     if (!store.updateMod(req.params.id, req.params.modId, fields)) throw new HttpError(404, 'Ese mod ya no está.');
     res.json(panelState());
   });
@@ -759,7 +770,9 @@ function createApp(options) {
   // puede mandar la cabecera de sesión: se pide antes un enlace que vale dos
   // minutos y solo para esto.
   app.post('/api/panel/backup-link', requireOwner, (req, res) => {
-    res.json({ url: `/api/panel/backup?t=${encodeURIComponent(signToken({ email: owner }, 'backup', '2m'))}` });
+    const withHistory = !(req.body && req.body.withHistory === false);
+    const token = signToken({ email: owner, withHistory }, 'backup', '2m');
+    res.json({ url: `/api/panel/backup?t=${encodeURIComponent(token)}` });
   });
 
   app.get('/api/panel/backup', async (req, res) => {
@@ -775,7 +788,7 @@ function createApp(options) {
     res.setHeader('Content-Disposition', `attachment; filename="nova-panel-copia-${stamp}.zip"`);
     res.setHeader('Cache-Control', 'no-store');
     try {
-      await writeBackup(store, res);
+      await writeBackup(store, res, { withHistory: session.withHistory !== false });
     } catch (err) {
       // Lo normal es que el navegador haya cancelado la descarga.
       console.warn('[AVISO] La copia de seguridad no se terminó de enviar:', err.message);
@@ -882,6 +895,46 @@ function createApp(options) {
 
   // ---------- Panel web y errores ----------
 
+  // ---------- Panel en tiempo real ----------
+
+  // El panel deja abierta esta conexión y el servidor le avisa («change») cada
+  // vez que cambia algo: un jugador abre el launcher, hay un cierre por error,
+  // o se cambia algo desde otra pestaña. El panel entonces vuelve a pedir el
+  // estado. Los avisos se juntan para no mandar uno por cada pequeño cambio.
+  const liveClients = new Set();
+  app.get('/api/panel/events', requireOwner, (req, res) => {
+    if (liveClients.size >= MAX_LIVE_CLIENTS) throw new HttpError(429, 'Hay demasiadas pestañas del panel abiertas.');
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      // Que ningún proxy por el camino se guarde los avisos para mandarlos juntos.
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 5000\n\n');
+    let pending = null;
+    const off = store.onChange(() => {
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        res.write('event: change\ndata: {}\n\n');
+      }, LIVE_DEBOUNCE_MS);
+    });
+    // Un comentario de vez en cuando para que la conexión no se cierre por inactiva.
+    const ping = setInterval(() => res.write(': ping\n\n'), LIVE_PING_MS);
+    // Al caducar la sesión del panel se corta: el panel lo notará y pedirá entrar.
+    const expires = setTimeout(() => res.end(), Math.max(0, req.session.exp * 1000 - Date.now()));
+    const client = { res };
+    liveClients.add(client);
+    req.on('close', () => {
+      liveClients.delete(client);
+      off();
+      clearTimeout(pending);
+      clearInterval(ping);
+      clearTimeout(expires);
+    });
+  });
+
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
   // Sin caché de tiempo fijo: el navegador comprueba en cada visita si el
   // panel ha cambiado (con ETag), para que tras un despliegue no siga
@@ -904,6 +957,8 @@ function createApp(options) {
     res.status(status).json({ error: message, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
   });
 
+  // Escribe a disco lo pendiente; lo llama index.js antes de apagar.
+  app.flushData = () => store.flush();
   return app;
 }
 

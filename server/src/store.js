@@ -12,6 +12,12 @@ const MODPACK_IDS = ['normal', 'admin'];
 const PLAYER_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 // Versiones anteriores que se guardan de cada modpack para poder deshacer.
 const MAX_HISTORY = 15;
+// Cambios seguidos con menos de esto entre uno y otro se guardan en el
+// historial como uno solo (el estado de antes del primero).
+const HISTORY_GROUP_MS = 5 * 60 * 1000;
+// Lo que no corre prisa (jugador visto, mods opcionales desactivados) se
+// escribe a disco agrupado, como mucho cada tanto.
+const LAZY_SAVE_MS = 3000;
 // Días de actividad que se guardan para las estadísticas del panel.
 const STATS_DAYS = 60;
 const MAX_SUSPECTS_PER_DAY = 60;
@@ -81,7 +87,9 @@ function normalize(data) {
   return data;
 }
 
-function createStore(dataDir) {
+// options.historyGroupMs: ventana para agrupar cambios en el historial (los
+// tests la ponen a 0 para que cada cambio cuente).
+function createStore(dataDir, { historyGroupMs = HISTORY_GROUP_MS } = {}) {
   const dbPath = path.join(dataDir, 'db.json');
   const filesDir = path.join(dataDir, 'files');
   const tmpDir = path.join(dataDir, 'tmp');
@@ -98,10 +106,45 @@ function createStore(dataDir) {
     data = normalize({});
   }
 
-  function save() {
+  // Quien quiere enterarse de cada cambio (el panel, en tiempo real).
+  const listeners = new Set();
+  let lazyTimer = null;
+
+  function writeNow() {
+    if (lazyTimer) {
+      clearTimeout(lazyTimer);
+      lazyTimer = null;
+    }
     const tmp = `${dbPath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    // Sin sangría: con el historial lleno ocupa casi la mitad y se escribe antes.
+    fs.writeFileSync(tmp, JSON.stringify(data));
     fs.renameSync(tmp, dbPath);
+  }
+
+  function notify() {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch (err) {
+        console.warn('[AVISO] Fallo al avisar de un cambio:', err.message);
+      }
+    }
+  }
+
+  // Cambios del dueño: se escriben al momento.
+  function save() {
+    writeNow();
+    notify();
+  }
+
+  // Cambios que llegan a menudo y no importa perder unos segundos si el
+  // servidor se cae: se juntan y se escriben de una vez.
+  function saveLater() {
+    if (!lazyTimer) {
+      lazyTimer = setTimeout(writeNow, LAZY_SAVE_MS);
+      lazyTimer.unref();
+    }
+    notify();
   }
 
   function filePath(sha1) {
@@ -276,10 +319,22 @@ function createStore(dataDir) {
 
     // ---------- Historial ----------
 
-    // Guarda cómo está el modpack ahora mismo, antes de cambiarlo.
-    snapshot(id, label) {
+    // Guarda cómo está el modpack ahora mismo, antes de cambiarlo. Si el
+    // último guardado es de hace muy poco, no se guarda otro: ese ya tiene
+    // el estado de antes de toda la tanda de cambios, y así una tarde de
+    // retoques no borra del historial las versiones buenas. force: guardar
+    // siempre (al volver a una versión, para poder deshacerlo).
+    snapshot(id, label, { force = false } = {}) {
       const modpack = data.modpacks[id];
       const list = data.history[id];
+      const last = list[0];
+      const now = Date.now();
+      if (!force && last && now - new Date(last.lastChange || last.at).getTime() < historyGroupMs) {
+        last.lastChange = new Date(now).toISOString();
+        last.changes = (last.changes || 1) + 1;
+        save();
+        return;
+      }
       list.unshift({
         id: crypto.randomUUID(),
         at: new Date().toISOString(),
@@ -299,7 +354,8 @@ function createStore(dataDir) {
       data.history[id].map((state) => ({
         id: state.id,
         at: state.at,
-        label: state.label,
+        // Si es una tanda, cuántos cambios se hicieron después de guardarlo.
+        label: state.changes > 1 ? `${state.label} (y ${state.changes - 1} cambios más)` : state.label,
         modCount: state.mods.length,
         fileCount: state.files.length,
         loaderVersion: state.loaderVersion,
@@ -310,7 +366,7 @@ function createStore(dataDir) {
     restoreSnapshot(id, snapshotId) {
       const state = data.history[id].find((entry) => entry.id === snapshotId);
       if (!state) return false;
-      this.snapshot(id, 'Antes de volver a una versión anterior');
+      this.snapshot(id, 'Antes de volver a una versión anterior', { force: true });
       const modpack = data.modpacks[id];
       modpack.mcVersion = state.mcVersion;
       modpack.loader = state.loader;
@@ -414,8 +470,29 @@ function createStore(dataDir) {
     // ---------- Copia de seguridad ----------
 
     // Los datos tal cual se guardan en db.json, y los .jar que usan los modpacks.
-    exportData: () => JSON.stringify(data, null, 2),
-    usedFiles: () => [...usedSha1()],
+    // withHistory: false deja fuera el historial (copia más pequeña y rápida).
+    exportData: ({ withHistory = true } = {}) =>
+      JSON.stringify(withHistory ? data : { ...data, history: {} }, null, 2),
+    // Archivos que usa algo: los modpacks y, si se pide, su historial.
+    usedFiles: ({ withHistory = true } = {}) => {
+      if (withHistory) return [...usedSha1()];
+      const used = new Set();
+      for (const id of MODPACK_IDS) {
+        for (const item of [...data.modpacks[id].mods, ...data.modpacks[id].files]) used.add(item.sha1);
+      }
+      return [...used];
+    },
+
+    // Avisa de cada cambio; devuelve la función para dejar de escuchar.
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+
+    // Escribe ya lo que esté pendiente (al apagar el servidor).
+    flush: () => {
+      if (lazyTimer) writeNow();
+    },
 
     // Sustituye todos los datos por los de una copia (ya validada y con sus
     // .jar puestos en files/) y borra los .jar que dejan de usarse.
@@ -470,23 +547,23 @@ function createStore(dataDir) {
         known.launcherVersion === version &&
         now - new Date(known.lastSeen).getTime() < PLAYER_SEEN_INTERVAL_MS
       ) {
-        if (dayChanged) save();
+        if (dayChanged) saveLater();
         return;
       }
       const stamp = new Date(now).toISOString();
+      // Se conserva todo lo que ya tuviera (personajes, permisos, notas...).
       data.players[key] = {
+        ...(known || {}),
         name,
         uuid: uuid || null,
         premium: Boolean(premium),
         firstSeen: known ? known.firstSeen : stamp,
         lastSeen: stamp,
         launcherVersion: version,
-        ...(known && known.characters ? { characters: known.characters } : {}),
-        ...(known && known.blockedCharacters ? { blockedCharacters: known.blockedCharacters } : {}),
-        ...(known && known.disabled ? { disabled: known.disabled } : {}),
-        ...(known && known.characterLimit ? { characterLimit: known.characterLimit } : {}),
       };
-      save();
+      // Un jugador nuevo se guarda al momento; uno conocido, agrupado.
+      if (known) saveLater();
+      else save();
     },
 
     // Personajes de un admin: nicks sin premium con los que entra desde el
@@ -564,7 +641,7 @@ function createStore(dataDir) {
       const before = JSON.stringify((player.disabled || {})[modpackId] || null);
       if (before === JSON.stringify(keys)) return;
       player.disabled = { ...(player.disabled || {}), [modpackId]: keys };
-      save();
+      saveLater();
     },
 
     // Apunta un cierre del juego por error (lo avisa el launcher). suspects:

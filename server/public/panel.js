@@ -62,7 +62,13 @@ async function api(path, { method = 'GET', body } = {}) {
 }
 
 // Envuelve una acción del panel: enseña el error si falla y repinta si va bien.
+// Mientras hay una en marcha no se aceptan más (un doble clic mandaba la
+// misma acción dos veces y salía un error falso).
+let running = false;
 async function run(action, okMessage) {
+  if (running) return false;
+  running = true;
+  document.body.classList.add('is-busy');
   try {
     const data = await action();
     if (data && data.modpacks) {
@@ -74,7 +80,117 @@ async function run(action, okMessage) {
   } catch (err) {
     toast(err.message, 'error');
     return false;
+  } finally {
+    running = false;
+    document.body.classList.remove('is-busy');
+    if (refreshQueued) refreshSoon();
   }
+}
+
+// ---------- Tiempo real ----------
+
+// El servidor avisa por una conexión abierta cuando cambia algo, y el panel
+// vuelve a pedir el estado. No se repinta mientras se escribe en un campo o
+// hay una acción en marcha: se espera a que termine.
+let refreshQueued = false;
+let refreshTimer = null;
+let liveController = null;
+
+function busyEditing() {
+  const el = document.activeElement;
+  return Boolean(el && el !== document.body && el.closest('#panel') && el.matches('input, textarea, select'));
+}
+
+function refreshSoon() {
+  refreshQueued = true;
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refreshNow, 250);
+}
+
+async function refreshNow() {
+  if (!token || panel.hidden) return;
+  if (running || busyEditing()) return; // se reintenta al terminar (run) o al salir del campo
+  refreshQueued = false;
+  try {
+    const data = await api('/api/panel/state');
+    if (running || busyEditing()) {
+      refreshQueued = true;
+      return;
+    }
+    state = data;
+    render();
+  } catch {
+    // Sin conexión: se verá en el indicador; la próxima vez se reintenta.
+  }
+}
+
+document.addEventListener('focusout', () => {
+  if (refreshQueued) setTimeout(() => refreshQueued && refreshSoon(), 50);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && token && !panel.hidden) {
+    refreshSoon();
+    if (!liveController) startLive();
+  }
+});
+
+function setLive(stateName, text) {
+  const box = document.getElementById('liveState');
+  box.dataset.state = stateName;
+  document.getElementById('liveText').textContent = text;
+}
+
+// Lee los avisos del servidor. Se usa fetch (y no EventSource) para poder
+// mandar la sesión en la cabecera, igual que el resto de peticiones.
+async function startLive() {
+  if (liveController || !token) return;
+  const controller = new AbortController();
+  liveController = controller;
+  let wait = 2000;
+  while (token && liveController === controller) {
+    setLive('off', 'Conectando...');
+    try {
+      const res = await fetch('/api/panel/events', {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      if (res.status === 401) {
+        signOut();
+        break;
+      }
+      if (!res.ok || !res.body) throw new Error(String(res.status));
+      setLive('on', 'En directo');
+      wait = 2000;
+      // Por si algo cambió mientras no había conexión.
+      refreshSoon();
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let cut = buffer.indexOf('\n\n');
+        while (cut !== -1) {
+          const message = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          if (/^event: change$/m.test(message)) refreshSoon();
+          cut = buffer.indexOf('\n\n');
+        }
+      }
+    } catch {
+      if (controller.signal.aborted) break;
+    }
+    if (liveController !== controller || !token) break;
+    setLive('off', 'Sin conexión, reintentando...');
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    wait = Math.min(wait * 2, 30_000);
+  }
+  if (liveController === controller) liveController = null;
+}
+
+function stopLive() {
+  if (liveController) liveController.abort();
+  liveController = null;
 }
 
 // Botón que pide un segundo clic antes de hacer algo que no se puede deshacer.
@@ -106,6 +222,7 @@ function setGateStatus(text, isError = false) {
 
 function signOut() {
   token = null;
+  stopLive();
   try {
     sessionStorage.removeItem(TOKEN_KEY);
   } catch {
@@ -122,6 +239,7 @@ async function enterPanel(email) {
   gate.hidden = true;
   panel.hidden = false;
   render();
+  startLive();
 }
 
 async function onGoogleCredential(response) {
@@ -939,7 +1057,8 @@ document.getElementById('playerFilter').addEventListener('input', (e) => {
 document.getElementById('backupDownload').addEventListener('click', async () => {
   try {
     // El enlace vale dos minutos; al navegar a él, el navegador guarda el .zip.
-    const { url } = await api('/api/panel/backup-link', { method: 'POST' });
+    const withHistory = document.getElementById('backupHistory').checked;
+    const { url } = await api('/api/panel/backup-link', { method: 'POST', body: { withHistory } });
     window.location.assign(url);
     toast('Descargando la copia. Guárdala en un sitio seguro.');
   } catch (err) {

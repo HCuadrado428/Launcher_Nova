@@ -13,10 +13,12 @@ const FILE_ENTRY_RE = /^files\/([a-f0-9]{40})\.jar$/;
 const MAX_DB_BYTES = 20 * 1024 * 1024;
 
 // Escribe la copia en "output" (la respuesta HTTP) sin cargar los mods en memoria.
-function writeBackup(store, output) {
+// withHistory: false deja fuera las versiones guardadas del historial y sus
+// archivos (copia mucho más pequeña).
+function writeBackup(store, output, { withHistory = true } = {}) {
   const zip = new yazl.ZipFile();
-  zip.addBuffer(Buffer.from(store.exportData()), 'db.json');
-  for (const sha1 of store.usedFiles()) {
+  zip.addBuffer(Buffer.from(store.exportData({ withHistory })), 'db.json');
+  for (const sha1 of store.usedFiles({ withHistory })) {
     const file = store.filePath(sha1);
     // Los .jar ya están comprimidos: se guardan tal cual, que es mucho más rápido.
     if (fs.existsSync(file)) zip.addFile(file, `files/${sha1}.jar`, { compress: false });

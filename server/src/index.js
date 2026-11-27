@@ -44,6 +44,17 @@ const app = createApp({
   curseforge: curseforgeKey ? createCurseforgeClient(curseforgeKey) : null,
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Nova Launcher backend en el puerto ${port} · datos en ${dataDir} · dueño: ${ownerEmail}`);
 });
+
+// Railway avisa con SIGTERM antes de parar el servidor (al desplegar): se
+// escribe lo que quedara pendiente y se cierra sin cortar a nadie a medias.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    app.flushData();
+    server.close(() => process.exit(0));
+    // Las conexiones en directo del panel no se cierran solas.
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}

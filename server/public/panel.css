@@ -974,3 +974,43 @@ input::placeholder {
   border-color: rgba(46, 204, 113, 0.5);
   color: var(--emerald);
 }
+
+/* ---------- Tiempo real y acciones en marcha ---------- */
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim, #9a9484);
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8a8576;
+}
+.live[data-state='on'] .live-dot {
+  background: #2ecc71;
+  box-shadow: 0 0 6px #2ecc71;
+}
+.live[data-state='on'] {
+  color: var(--emerald);
+}
+body.is-busy {
+  cursor: progress;
+}
+body.is-busy .panel button {
+  pointer-events: none;
+}
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live[data-state='on'] .live-dot {
+    box-shadow: none;
+  }
+}
