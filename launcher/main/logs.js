@@ -41,15 +41,25 @@ function listMods(instanceDir) {
   }
 }
 
-function writeLogsZip({ dest, instanceDir, info, consoleLines = [] }) {
-  const files = collectLogFiles(instanceDir);
+// extra: otras carpetas de juego que van en el mismo .zip, cada una en su
+// subcarpeta: [{ instanceDir, prefix, consoleLines }] (la segunda ventana).
+function writeLogsZip({ dest, instanceDir, info, consoleLines = [], extra = [] }) {
   const zip = new yazl.ZipFile();
-  for (const { file, name } of files) {
-    const { size } = fs.statSync(file);
-    if (size > MAX_TEXT_BYTES) continue;
-    zip.addBuffer(Buffer.from(redact(fs.readFileSync(file, 'utf8'))), name);
-  }
-  if (consoleLines.length > 0) zip.addBuffer(Buffer.from(redact(consoleLines.join('\n'))), 'consola-launcher.txt');
+  const added = [];
+  const addGame = (dir, prefix, lines) => {
+    for (const { file, name } of collectLogFiles(dir)) {
+      const { size } = fs.statSync(file);
+      if (size > MAX_TEXT_BYTES) continue;
+      zip.addBuffer(Buffer.from(redact(fs.readFileSync(file, 'utf8'))), prefix + name);
+      added.push(prefix + name);
+    }
+    if (lines.length > 0) {
+      zip.addBuffer(Buffer.from(redact(lines.join('\n'))), `${prefix}consola-launcher.txt`);
+      added.push(`${prefix}consola-launcher.txt`);
+    }
+  };
+  addGame(instanceDir, '', consoleLines);
+  for (const other of extra) addGame(other.instanceDir, `${other.prefix}/`, other.consoleLines || []);
   const mods = listMods(instanceDir);
   const summary = [
     ...Object.entries(info).map(([key, value]) => `${key}: ${value}`),
@@ -62,7 +72,7 @@ function writeLogsZip({ dest, instanceDir, info, consoleLines = [] }) {
   return new Promise((resolve, reject) => {
     const out = fs.createWriteStream(dest);
     out.on('error', reject);
-    out.on('close', () => resolve({ dest, files: files.map((f) => f.name) }));
+    out.on('close', () => resolve({ dest, files: added }));
     zip.outputStream.pipe(out);
     zip.end();
   });

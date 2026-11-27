@@ -67,6 +67,8 @@ let discordUrl = '';
 const MAX_GAME_LOG_LINES = 4000;
 // Lo último que escribió el juego de cada modpack, aunque ya se haya cerrado.
 const lastLogs = new Map();
+// Con qué nick y cuánta memoria se abrió por última vez cada juego (para los registros).
+const lastRuns = new Map();
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -787,6 +789,7 @@ async function play(modpackId) {
     javaPath: java.javaPath,
   };
   lastLogs.set(modpackId, game.log);
+  lastRuns.set(modpackId, { nick: game.nick, memoryGb });
   game.child = await launchGame(
     {
       account,
@@ -896,6 +899,8 @@ async function playSecond(nick) {
   const cfg = settings();
   const memoryGb = memoryForGame(cfg);
   const game = { child: null, startedAt: Date.now(), log: [], memoryGb, stoppedByUser: false, nick: character.nick };
+  lastLogs.set(seat, game.log);
+  lastRuns.set(seat, { nick: character.nick, memoryGb });
   game.child = await launchGame(
     {
       account: { type: 'offline', username: character.nick },
@@ -1027,7 +1032,21 @@ ipcMain.handle('export-logs', async (event, modpackId) => {
   const id = String(modpackId);
   const dir = instanceDir(id);
   const consoleLines = lastLogs.get(id) || [];
-  if (collectLogFiles(dir).length === 0 && consoleLines.length === 0) return { ok: false, reason: 'none' };
+  // La segunda ventana tiene su propia carpeta: sus registros van en
+  // «ventana-2/» dentro del mismo .zip.
+  const seatDir = instanceDir(seatDirName(id));
+  const seatLines = lastLogs.get(seatId(id)) || [];
+  const extra = [];
+  if (collectLogFiles(seatDir).length > 0 || seatLines.length > 0) {
+    extra.push({ instanceDir: seatDir, prefix: 'ventana-2', consoleLines: seatLines });
+  }
+  if (collectLogFiles(dir).length === 0 && consoleLines.length === 0 && extra.length === 0) {
+    return { ok: false, reason: 'none' };
+  }
+  const run = (key) => {
+    const last = lastRuns.get(key);
+    return last ? `${last.nick || '?'} con ${last.memoryGb} GB` : 'no se ha abierto en esta sesión';
+  };
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   const picked = await dialog.showSaveDialog(mainWindow, {
@@ -1043,6 +1062,7 @@ ipcMain.handle('export-logs', async (event, modpackId) => {
     dest: picked.filePath,
     instanceDir: dir,
     consoleLines,
+    extra,
     info: {
       Launcher: app.getVersion(),
       Modpack: id,
@@ -1052,6 +1072,8 @@ ipcMain.handle('export-logs', async (event, modpackId) => {
       'Memoria para el juego': `${cfg.memoryGb} GB`,
       Java: cfg.javaPath || 'automático',
       Cuenta: account ? `${account.username} (${account.type})` : 'sin sesión',
+      'Último juego': run(id),
+      ...(extra.length > 0 ? { 'Segunda ventana': run(seatId(id)) } : {}),
       'Opcionales desactivados': disabledMods(id).join(', ') || 'ninguno',
     },
   });

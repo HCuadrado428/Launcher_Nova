@@ -113,7 +113,12 @@ test('el zip de registros lleva los archivos útiles y ningún token', async () 
       consoleLines: ['salida del juego'],
       info: { Launcher: '1.1.0', Modpack: 'normal' },
     });
-    assert.deepEqual(result.files, ['logs/latest.log', 'logs/debug.log', 'crash-reports/crash-2026-11-23_20.10.02-client.txt']);
+    assert.deepEqual(result.files, [
+      'logs/latest.log',
+      'logs/debug.log',
+      'crash-reports/crash-2026-11-23_20.10.02-client.txt',
+      'consola-launcher.txt',
+    ]);
 
     const list = execFileSync('unzip', ['-Z1', dest], { encoding: 'utf8' }).trim().split('\n').sort();
     assert.deepEqual(list, [
@@ -132,5 +137,40 @@ test('el zip de registros lleva los archivos útiles y ningún token', async () 
     assert.equal(redact(`a ${token} b`), 'a [token oculto] b');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('los registros de la segunda ventana van en su propia carpeta del zip', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-logs2-'));
+  try {
+    const main = path.join(root, 'normal');
+    const seat = path.join(root, 'normal-2');
+    fs.mkdirSync(path.join(main, 'logs'), { recursive: true });
+    fs.mkdirSync(path.join(seat, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(main, 'logs', 'latest.log'), 'primera ventana');
+    fs.writeFileSync(path.join(seat, 'logs', 'latest.log'), 'segunda ventana');
+    // El error de memoria de Java de la segunda ventana se queda en su carpeta.
+    fs.writeFileSync(path.join(seat, 'hs_err_pid42.log'), 'There is insufficient memory');
+    const dest = path.join(root, 'registros.zip');
+    await writeLogsZip({
+      dest,
+      instanceDir: main,
+      consoleLines: ['juego 1'],
+      extra: [{ instanceDir: seat, prefix: 'ventana-2', consoleLines: ['juego 2'] }],
+      info: { 'Segunda ventana': 'Finn con 4 GB' },
+    });
+    const list = execFileSync('unzip', ['-Z1', dest], { encoding: 'utf8' }).trim().split('\n').sort();
+    assert.deepEqual(list, [
+      'consola-launcher.txt',
+      'launcher.txt',
+      'logs/latest.log',
+      'ventana-2/consola-launcher.txt',
+      'ventana-2/hs_err_pid42.log',
+      'ventana-2/logs/latest.log',
+    ]);
+    assert.equal(execFileSync('unzip', ['-p', dest, 'ventana-2/logs/latest.log'], { encoding: 'utf8' }), 'segunda ventana');
+    assert.match(execFileSync('unzip', ['-p', dest, 'launcher.txt'], { encoding: 'utf8' }), /Segunda ventana: Finn con 4 GB/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
